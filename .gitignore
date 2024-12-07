@@ -8,6 +8,8 @@ node_modules
 sessions
 sessions_test
 .wwebjs_cache
+.wwebjs_auth
+.github
 
 # Ignore logs
 logs
