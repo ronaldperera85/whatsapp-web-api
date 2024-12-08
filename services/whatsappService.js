@@ -3,11 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode');
 
-// Ruta base para guardar las sesiones
 const sessionsPath = path.join(__dirname, '.wwebjs_auth');
-const activeClients = {}; // Mantener las sesiones activas en memoria
+const activeClients = {};
 
-// Cargar sesiones activas al iniciar el servidor
+// Inicializar sesiones y restaurar tokens
 const initializeSessions = () => {
   if (!fs.existsSync(sessionsPath)) {
     console.log(`Sessions path not found: ${sessionsPath}`);
@@ -17,9 +16,12 @@ const initializeSessions = () => {
   const directories = fs.readdirSync(sessionsPath);
   directories.forEach((userId) => {
     const userSessionPath = path.join(sessionsPath, userId);
+    const sessionFile = path.join(userSessionPath, 'session.json');
 
-    if (fs.statSync(userSessionPath).isDirectory()) {
+    if (fs.statSync(userSessionPath).isDirectory() && fs.existsSync(sessionFile)) {
       console.log(`Restoring session for user: ${userId}`);
+      const sessionData = JSON.parse(fs.readFileSync(sessionFile, 'utf-8'));
+
       const client = new Client({
         authStrategy: new LocalAuth({
           clientId: userId,
@@ -29,11 +31,7 @@ const initializeSessions = () => {
 
       client.on('ready', () => {
         console.log(`Restored WhatsApp client for ${userId}`);
-        activeClients[userId] = client;
-      });
-
-      client.on('authenticated', () => {
-        console.log(`Session authenticated for user ${userId}`);
+        activeClients[userId] = { client, token: sessionData.token };
       });
 
       client.on('disconnected', () => {
@@ -47,16 +45,18 @@ const initializeSessions = () => {
 };
 
 // Crear una sesión de WhatsApp para un usuario
-const createSession = (userId, qrCallback) => {
+const createSession = (userId, token, qrCallback) => {
   if (activeClients[userId]) {
     console.log(`Session already exists for user ${userId}`);
     return;
   }
 
+  const userSessionPath = path.join(sessionsPath, userId);
+
   const client = new Client({
     authStrategy: new LocalAuth({
       clientId: userId,
-      dataPath: path.join(sessionsPath, userId),
+      dataPath: userSessionPath,
     }),
   });
 
@@ -68,11 +68,8 @@ const createSession = (userId, qrCallback) => {
 
   client.on('ready', () => {
     console.log(`WhatsApp client for ${userId} is ready!`);
-    activeClients[userId] = client; // Almacenar el cliente en memoria
-  });
-
-  client.on('authenticated', () => {
-    console.log(`Authenticated for ${userId}`);
+    activeClients[userId] = { client, token };
+    saveSessionData(userId, { token });
   });
 
   client.on('disconnected', () => {
@@ -83,22 +80,53 @@ const createSession = (userId, qrCallback) => {
   client.initialize();
 };
 
+// Guardar datos de sesión (incluido el token)
+const saveSessionData = (userId, data) => {
+  const userSessionPath = path.join(sessionsPath, userId);
+  const sessionFile = path.join(userSessionPath, 'session.json');
+
+  if (!fs.existsSync(userSessionPath)) {
+    fs.mkdirSync(userSessionPath, { recursive: true });
+  }
+
+  let existingData = {};
+  if (fs.existsSync(sessionFile)) {
+    existingData = JSON.parse(fs.readFileSync(sessionFile, 'utf-8'));
+  }
+
+  const updatedData = { ...existingData, ...data };
+  fs.writeFileSync(sessionFile, JSON.stringify(updatedData, null, 2));
+};
+
+// Validar token desde el archivo de sesión
+const validateSessionToken = (userId, token) => {
+  const sessionFile = path.join(sessionsPath, userId, 'session.json');
+  if (!fs.existsSync(sessionFile)) {
+    return false;
+  }
+
+  const sessionData = JSON.parse(fs.readFileSync(sessionFile, 'utf-8'));
+  return sessionData.token === token;
+};
+
 // Obtener el estado de la sesión
 const getSessionState = (userId) => {
   if (activeClients[userId]) {
     return 'authenticated';
   }
+
   const sessionPath = path.join(sessionsPath, userId);
   if (fs.existsSync(sessionPath)) {
     return 'not authenticated';
   }
+
   return 'not found';
 };
 
 // Desconectar una sesión
 const disconnectSession = (userId) => {
   if (activeClients[userId]) {
-    activeClients[userId].destroy();
+    activeClients[userId].client.destroy();
     delete activeClients[userId];
     console.log(`Session for user ${userId} has been disconnected successfully.`);
     return 'disconnected';
@@ -108,15 +136,15 @@ const disconnectSession = (userId) => {
 
 // Enviar un mensaje
 const sendMessage = async (userId, phoneNumber, message) => {
-  const client = activeClients[userId];
-  if (!client) {
+  const session = activeClients[userId];
+  if (!session || !session.client) {
     console.log(`No session found for user ${userId}`);
     return 'Session not found';
   }
 
   try {
     const chatId = `${phoneNumber}@c.us`;
-    await client.sendMessage(chatId, message);
+    await session.client.sendMessage(chatId, message);
     console.log(`Message sent to ${phoneNumber}: ${message}`);
     return 'sent';
   } catch (error) {
@@ -128,6 +156,8 @@ const sendMessage = async (userId, phoneNumber, message) => {
 module.exports = {
   initializeSessions,
   createSession,
+  saveSessionData,
+  validateSessionToken,
   getSessionState,
   disconnectSession,
   sendMessage,

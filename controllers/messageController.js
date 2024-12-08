@@ -1,34 +1,66 @@
-// messageController.js
-
 const whatsappService = require('../services/whatsappService');
 const apiResponse = require('../utils/apiResponse');
-const logger = require('../utils/logger'); // Importar el logger
+const logger = require('../utils/logger'); 
+const jwt = require('jsonwebtoken'); // Importar JWT
 
 // Ruta para registrar un usuario (generar QR)
 exports.registerUser = async (req, res) => {
   try {
     const { userId } = req.body;
+
     if (!userId) {
-      logger.warn(`User ID is missing in registration request`);
+      logger.warn('User ID is missing in registration request');
       return apiResponse.sendError(res, 'User ID is required.', 400);
     }
 
-    // Verificar si el usuario ya está autenticado
-    const sessionStatus = whatsappService.getSessionState(userId);
-    if (sessionStatus === 'authenticated') {
-      logger.info(`User ${userId} is already authenticated.`);
-      return apiResponse.sendError(res, 'User is already authenticated.', 400);
-    }
+    // Generar el token
+    const token = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
-    // Crear una sesión para el usuario y generar un QR
-    whatsappService.createSession(userId, (qrBase64) => {
-      logger.info(`QR code generated for user ${userId}`);
-      return apiResponse.sendSuccess(res, { qrCode: qrBase64 }, 200);
+    whatsappService.createSession(userId, token, (qrBase64) => {
+      logger.info(`QR code and token created for user ${userId}`);
+      return apiResponse.sendSuccess(res, { qrCode: qrBase64, token }, 200);
     });
   } catch (error) {
-    logger.error(`Error registering user ${userId}: ${error.message}`);
-    console.error(error);
+    logger.error(`Error registering user: ${error.message}`);
     return apiResponse.sendError(res, 'Error registering user.', 500);
+  }
+};
+
+// Ruta para enviar un mensaje
+exports.sendMessage = async (req, res) => {
+  try {
+    const { token, userId, phoneNumber, message } = req.body;
+
+    if (!token || !userId || !phoneNumber || !message) {
+      logger.warn('Missing fields in send message request');
+      return apiResponse.sendError(res, 'Token, User ID, phone number, and message are required.', 400);
+    }
+
+    // Validar el token
+    if (!whatsappService.validateSessionToken(userId, token)) {
+      logger.warn('Invalid or expired token');
+      return apiResponse.sendError(res, 'Invalid or expired token.', 401);
+    }
+
+    // Verificar el estado de la sesión
+    const sessionStatus = whatsappService.getSessionState(userId);
+    if (sessionStatus !== 'authenticated') {
+      logger.warn(`User ${userId} is not authenticated`);
+      return apiResponse.sendError(res, 'User is not authenticated.', 401);
+    }
+
+    // Enviar el mensaje
+    const status = await whatsappService.sendMessage(userId, phoneNumber, message);
+    if (status === 'sent') {
+      logger.info(`Message sent successfully to ${phoneNumber} by user ${userId}`);
+      return apiResponse.sendSuccess(res, { userId, phoneNumber, message }, 200);
+    } else {
+      logger.error(`Failed to send message to ${phoneNumber} by user ${userId}`);
+      return apiResponse.sendError(res, 'Failed to send message.', 500);
+    }
+  } catch (error) {
+    logger.error(`Error sending message: ${error.message}`);
+    return apiResponse.sendError(res, 'Error sending message.', 500);
   }
 };
 
@@ -41,7 +73,6 @@ exports.getSessionStatus = async (req, res) => {
     return apiResponse.sendSuccess(res, { userId, status }, 200);
   } catch (error) {
     logger.error(`Error fetching session status for user ${userId}: ${error.message}`);
-    console.error(error);
     return apiResponse.sendError(res, 'Error fetching session status.', 500);
   }
 };
@@ -59,38 +90,6 @@ exports.disconnectUser = async (req, res) => {
     return apiResponse.sendSuccess(res, { userId, status }, 200);
   } catch (error) {
     logger.error(`Error disconnecting user ${userId}: ${error.message}`);
-    console.error(error);
     return apiResponse.sendError(res, 'Error disconnecting user.', 500);
   }
 };
-
-// Ruta para enviar un mensaje
-exports.sendMessage = async (req, res) => {
-  try {
-    const { userId, phoneNumber, message } = req.body;
-
-    if (!userId || !phoneNumber || !message) {
-      logger.warn(`Missing fields in send message request for user ${userId}`);
-      return apiResponse.sendError(res, 'User ID, phone number, and message are required.', 400);
-    }
-
-    const sessionStatus = whatsappService.getSessionState(userId);
-    if (sessionStatus !== 'authenticated') {
-      logger.warn(`User ${userId} is not authenticated.`);
-      return apiResponse.sendError(res, 'User is not authenticated.', 401);
-    }
-
-    const status = await whatsappService.sendMessage(userId, phoneNumber, message);
-    if (status === 'sent') {
-      logger.info(`Message sent successfully to ${phoneNumber} by user ${userId}`);
-      return apiResponse.sendSuccess(res, { userId, phoneNumber, message }, 200);
-    } else {
-      logger.error(`Failed to send message to ${phoneNumber} by user ${userId}`);
-      return apiResponse.sendError(res, 'Failed to send message.', 500);
-    }
-  } catch (error) {
-    logger.error(`Error sending message for user ${userId}: ${error.message}`);
-    return apiResponse.sendError(res, 'Error sending message.', 500);
-  }
-};
-

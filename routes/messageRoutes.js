@@ -12,6 +12,6 @@ router.get('/status/:userId', messageController.getSessionStatus);
 router.post('/disconnect/:userId', messageController.disconnectUser);
 
 // Ruta para enviar un mensaje
-router.post('/send-message', messageController.sendMessage);
+router.post('/send/chat', messageController.sendMessage);
 
 module.exports = router;
