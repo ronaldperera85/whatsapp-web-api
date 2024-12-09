@@ -50,7 +50,6 @@ exports.getSessionStatus = async (req, res) => {
     return apiResponse.sendSuccess(res, { userId, status }, 200);
   } catch (error) {
     logger.error(`Error fetching session status for user ${userId}: ${error.message}`);
-    console.error(error);
     return apiResponse.sendError(res, 'Error fetching session status.', 500);
   }
 };
@@ -68,7 +67,6 @@ exports.disconnectUser = async (req, res) => {
     return apiResponse.sendSuccess(res, { userId, status }, 200);
   } catch (error) {
     logger.error(`Error disconnecting user ${userId}: ${error.message}`);
-    console.error(error);
     return apiResponse.sendError(res, 'Error disconnecting user.', 500);
   }
 };

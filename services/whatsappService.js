@@ -4,7 +4,6 @@ const path = require('path');
 const qrcode = require('qrcode');
 const sessionManager = require('../utils/sessionManager');
 
-// Ruta base para guardar las sesiones
 const sessionsPath = path.join(__dirname, '.wwebjs_auth');
 const activeClients = {}; // Mantener las sesiones activas en memoria
 
@@ -18,7 +17,7 @@ const getSessionState = (uid) => {
   }
 };
 
-// Cargar sesiones activas al iniciar el servidor
+// Inicializar sesiones y restaurar tokens
 const initializeSessions = () => {
   if (!fs.existsSync(sessionsPath)) {
       console.log(`Sessions path not found: ${sessionsPath}`);
@@ -53,6 +52,8 @@ const createSession = (uid, qrCallback) => {
     console.log(`Session already exists for user ${uid}`);
     return;
   }
+
+  const userSessionPath = path.join(sessionsPath, userId);
 
   const client = new Client({
     authStrategy: new LocalAuth({
@@ -122,6 +123,8 @@ const sendMessage = async (uid, to, text) => {
 module.exports = {
   initializeSessions,
   createSession,
+  saveSessionData,
+  validateSessionToken,
   getSessionState,
   disconnectSession,
   sendMessage,
