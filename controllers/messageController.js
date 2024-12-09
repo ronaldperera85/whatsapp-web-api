@@ -38,9 +38,6 @@ exports.registerUser = async (req, res) => {
   }
 };
 
-
-
-
 // Ruta para obtener el estado de la sesión
 exports.getSessionStatus = async (req, res) => {
   try {
@@ -110,4 +107,3 @@ exports.sendMessage = async (req, res) => {
     return apiResponse.sendError(res, 'Error sending message.', 500);
   }
 };
-

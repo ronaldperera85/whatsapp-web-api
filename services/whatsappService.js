@@ -98,7 +98,6 @@ const disconnectSession = (uid) => {
   return 'Session not found';
 };
 
-
 // Enviar un mensaje
 const sendMessage = async (uid, to, text) => {
   const client = activeClients[uid]; // Usar el cliente de memoria
@@ -117,8 +116,6 @@ const sendMessage = async (uid, to, text) => {
     return 'failed';
   }
 };
-
-
 
 module.exports = {
   initializeSessions,
