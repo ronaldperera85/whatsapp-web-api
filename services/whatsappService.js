@@ -117,6 +117,17 @@ const sendMessage = async (uid, to, text) => {
   }
 };
 
+const saveSessionData = (uid, token) => {
+  sessionManager.addSession(uid, token);
+  console.log(`Session data saved for user ${uid}`);
+};
+
+const validateSessionToken = (token) => {
+  const isValid = sessionManager.validateToken(token);
+  console.log(`Token validation result: ${isValid}`);
+  return isValid;
+};
+
 module.exports = {
   initializeSessions,
   createSession,
