@@ -6,7 +6,6 @@ node_modules
 
 # Ignore sessions
 sessions
-sessions.json
 sessions_test
 .wwebjs_cache
 .wwebjs_auth
@@ -21,3 +20,4 @@ coverage
 # Ignore other unnecessary files
 .DS_Store
 .vscode
+sessions.json

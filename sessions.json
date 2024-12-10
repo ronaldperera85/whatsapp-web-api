@@ -1,5 +1,6 @@
 {
-  "1234567890": {
-    "token": "example-token",
+  "584246434313": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiI1ODQyNDY0MzQzMTMiLCJpYXQiOjE3MzM4MzUwODQsImV4cCI6MTczMzgzODY4NH0.s5bQbX6ZOx7tnY2M3h8LKWBuLK0OkS5rs6Vk0DJFls4",
     "authenticated": true
   }
+}
