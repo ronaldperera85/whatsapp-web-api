@@ -3,13 +3,15 @@ const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode');
 const sessionManager = require('../utils/sessionManager');
+const axios = require('axios'); // Importar Axios para enviar el POST
+const logger = require('../utils/logger'); // Importar logger
 
 const sessionsPath = path.join(__dirname, '.wwebjs_auth');
 const activeClients = {}; // Mantener las sesiones activas en memoria
 
 // Obtener el estado de la sesión
 const getSessionState = (uid) => {
-  const sessionPath = path.join(__dirname, '..', '.wwebjs_auth', uid);
+  const sessionPath = path.join(sessionsPath, uid);
   if (fs.existsSync(sessionPath)) {
     return 'authenticated';
   } else {
@@ -20,40 +22,41 @@ const getSessionState = (uid) => {
 // Inicializar sesiones y restaurar tokens
 const initializeSessions = () => {
   if (!fs.existsSync(sessionsPath)) {
-      console.log(`Sessions path not found: ${sessionsPath}`);
-      return;
+    logger.warn(`Sessions path not found: ${sessionsPath}`);
+    return;
   }
 
   const directories = fs.readdirSync(sessionsPath);
-  directories.forEach((userId) => {
-      const userSessionPath = path.join(sessionsPath, userId);
+  directories.forEach((uid) => {
+    const userSessionPath = path.join(sessionsPath, uid);
 
-      if (fs.statSync(userSessionPath).isDirectory()) {
-          const client = new Client({
-              authStrategy: new LocalAuth({
-                  clientId: userId,
-                  dataPath: userSessionPath,
-              }),
-          });
+    if (fs.statSync(userSessionPath).isDirectory()) {
+      const client = new Client({
+        authStrategy: new LocalAuth({
+          clientId: uid,
+          dataPath: userSessionPath,
+        }),
+      });
 
-          client.on('ready', () => {
-              console.log(`Restored WhatsApp client for ${userId}`);
-              activeClients[userId] = client;
-          });
+      client.on('ready', () => {
+        logger.info(`Restored WhatsApp client for ${uid}`);
+        activeClients[uid] = client;
+      });
 
-          client.initialize();
-      }
+      // Configurar interceptación de mensajes
+      setupMessageListener(client, uid);
+
+      client.initialize();
+    }
   });
 };
 
 // Crear una sesión de WhatsApp para un usuario
 const createSession = (uid, qrCallback) => {
   if (activeClients[uid]) {
-    console.log(`Session already exists for user ${uid}`);
+    logger.warn(`Session already exists for user ${uid}`);
     return;
   }
-
-  const userSessionPath = path.join(sessionsPath, userId);
 
   const client = new Client({
     authStrategy: new LocalAuth({
@@ -63,28 +66,81 @@ const createSession = (uid, qrCallback) => {
   });
 
   client.on('qr', async (qr) => {
-    console.log(`QR for user ${uid}:`, qr);
+    logger.info(`QR for user ${uid} generated`);
     const qrBase64 = await qrcode.toDataURL(qr);
     qrCallback(qrBase64);
   });
 
   client.on('ready', () => {
-    console.log(`WhatsApp client for ${uid} is ready!`);
+    logger.info(`WhatsApp client for ${uid} is ready`);
     activeClients[uid] = client;
     sessionManager.updateSessionAuth(uid, true); // Marcar como autenticado
   });
 
   client.on('authenticated', () => {
-    console.log(`Authenticated for ${uid}`);
+    logger.info(`Authenticated for ${uid}`);
   });
 
   client.on('disconnected', () => {
-    console.log(`Client for ${uid} disconnected`);
+    logger.warn(`Client for ${uid} disconnected`);
     delete activeClients[uid];
     sessionManager.updateSessionAuth(uid, false); // Marcar como no autenticado
   });
 
+  // Configurar interceptación de mensajes
+  setupMessageListener(client, uid);
+
   client.initialize();
+};
+
+// Configurar interceptación de mensajes
+const setupMessageListener = (client, uid) => {
+  client.on('message', async (msg) => {
+    logger.info(`[Incoming] Message from ${msg.from.replace("@c.us", "")} to ${uid}: ${msg.body}`, { timestamp: new Date().toISOString() });
+
+    // Obtener el token dinámico para este UID
+    const token = sessionManager.getToken(uid);
+    if (!token) {
+      logger.error(`No token found for user ${uid}`);
+      return;
+    }
+
+    const payload = {
+      event: "message",
+      token, // Token dinámico obtenido
+      uid,
+      contact: {
+        uid: msg.from.replace("@c.us", ""), // Número del remitente
+        name: msg._data.notifyName || "Unknown", // Nombre del contacto si está disponible
+        type: "user",
+      },
+      message: {
+        dtm: Math.floor(Date.now() / 1000), // Marca de tiempo en segundos
+        uid: msg.id.id, // ID único del mensaje
+        cuid: "", // Puedes ajustar esto según sea necesario
+        dir: "i", // Dirección "i" para mensajes entrantes
+        type: "chat", // Tipo de mensaje
+        body: {
+          text: msg.body, // Contenido del mensaje
+        },
+        ack: msg.ack.toString(), // Estado del mensaje
+      },
+    };
+
+    // Enviar el mensaje al endpoint
+    try {
+      const response = await axios.post(
+        "http://developer.icarosoft.com:8092/scriptcase/app/api_rest_icarosoft/waboxapp_webhook/",
+        payload,
+        {
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        }
+      );
+      logger.info(`Message successfully sent to endpoint: ${response.status}`, { timestamp: new Date().toISOString() });
+    } catch (error) {
+      logger.error(`Error sending message to endpoint: ${error.message}`, { timestamp: new Date().toISOString() });
+    }
+  });
 };
 
 // Desconectar una sesión
@@ -92,7 +148,7 @@ const disconnectSession = (uid) => {
   if (activeClients[uid]) {
     activeClients[uid].destroy();
     delete activeClients[uid];
-    console.log(`Session for user ${uid} has been disconnected successfully.`);
+    logger.info(`Session for user ${uid} has been disconnected successfully`);
     return 'disconnected';
   }
   return 'Session not found';
@@ -102,37 +158,24 @@ const disconnectSession = (uid) => {
 const sendMessage = async (uid, to, text) => {
   const client = activeClients[uid]; // Usar el cliente de memoria
   if (!client) {
-    console.warn(`User ${uid} is not authenticated.`);
+    logger.warn(`User ${uid} is not authenticated`);
     return 'Session not found';
   }
 
   try {
     const chatId = `${to}@c.us`; // Formato internacional para el número
     const message = await client.sendMessage(chatId, text);
-    console.log(`Message sent to ${to}: ${text}`);
+    logger.info(`Message sent to ${to} by user ${uid}: ${text}`);
     return message.id ? 'sent' : 'failed';
   } catch (error) {
-    console.error(`Error sending message to ${to}: ${error.message}`);
+    logger.error(`Error sending message to ${to} by user ${uid}: ${error.message}`);
     return 'failed';
   }
-};
-
-const saveSessionData = (uid, token) => {
-  sessionManager.addSession(uid, token);
-  console.log(`Session data saved for user ${uid}`);
-};
-
-const validateSessionToken = (token) => {
-  const isValid = sessionManager.validateToken(token);
-  console.log(`Token validation result: ${isValid}`);
-  return isValid;
 };
 
 module.exports = {
   initializeSessions,
   createSession,
-  saveSessionData,
-  validateSessionToken,
   getSessionState,
   disconnectSession,
   sendMessage,
