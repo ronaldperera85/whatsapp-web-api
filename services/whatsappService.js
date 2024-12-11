@@ -6,7 +6,7 @@ const sessionManager = require('../utils/sessionManager');
 const axios = require('axios'); // Importar Axios para enviar el POST
 const logger = require('../utils/logger'); // Importar logger
 
-const sessionsPath = path.join(__dirname, '.wwebjs_auth');
+const sessionsPath = path.join(__dirname, '..', '.wwebjs_auth');
 const activeClients = {}; // Mantener las sesiones activas en memoria
 
 // Obtener el estado de la sesión
@@ -127,10 +127,18 @@ const setupMessageListener = (client, uid) => {
       },
     };
 
+    // Obtener la URL del endpoint desde el .env
+    const endpoint = process.env.POST_ENDPOINT;
+
+    if (!endpoint) {
+      logger.error('POST_ENDPOINT is not defined in the environment variables.');
+      return;
+    }
+
     // Enviar el mensaje al endpoint
     try {
       const response = await axios.post(
-        "http://developer.icarosoft.com:8092/scriptcase/app/api_rest_icarosoft/waboxapp_webhook/",
+        endpoint,
         payload,
         {
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
