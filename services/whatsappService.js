@@ -1,4 +1,4 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode');
@@ -181,10 +181,35 @@ const sendMessage = async (uid, to, text) => {
   }
 };
 
+// Enviar un mensaje con media
+const sendMediaMessage = async (uid, to, url) => {
+  const client = activeClients[uid]; // Usar el cliente de memoria
+  if (!client) {
+    logger.warn(`User ${uid} is not authenticated`);
+    return 'Session not found';
+  }
+
+  try {
+    const chatId = `${to}@c.us`; // Formato internacional para el número
+
+    // Formato del mensaje a enviar (URL como texto)
+    const messageText = `Imagen: ${url}`;
+
+    // Enviar el mensaje como texto
+    const message = await client.sendMessage(chatId, messageText);
+    logger.info(`URL message sent to ${to} by user ${uid}`);
+    return message.id ? 'sent' : 'failed';
+  } catch (error) {
+    logger.error(`Error sending URL message to ${to} by user ${uid}: ${error.message}`);
+    return 'failed';
+  }
+};
+
 module.exports = {
   initializeSessions,
   createSession,
   getSessionState,
   disconnectSession,
   sendMessage,
+  sendMediaMessage, // Exportamos la nueva función
 };

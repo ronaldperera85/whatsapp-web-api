@@ -107,3 +107,46 @@ exports.sendMessage = async (req, res) => {
     return apiResponse.sendError(res, 'Error sending message.', 500);
   }
 };
+
+
+exports.sendMediaMessage = async (req, res) => {
+  try {
+    const { token, uid, to, custom_uid, url } = req.body;
+
+    // Verificar que todos los campos requeridos estén presentes
+    if (!token || !uid || !to || !custom_uid || !url) {
+      logger.warn(`Missing fields in send media message request for user ${uid}`);
+      return apiResponse.sendError(
+        res,
+        'Token, UID, To, Custom UID, URL are required.',
+        400
+      );
+    }
+
+    // Validar el token
+    if (!sessionManager.validateToken(token)) {
+      logger.warn(`Invalid token provided for user ${uid}`);
+      return apiResponse.sendError(res, 'Invalid token.', 403);
+    }
+
+    // Verificar autenticación del usuario
+    if (!sessionManager.isAuthenticated(uid)) {
+      logger.warn(`User ${uid} is not authenticated.`);
+      return apiResponse.sendError(res, 'User is not authenticated.', 401);
+    }
+
+    // Enviar el mensaje multimedia
+    const status = await whatsappService.sendMediaMessage(uid, to, url);
+    if (status === 'sent') {
+      logger.info(`Media message sent successfully to ${to} by user ${uid}`);
+      return apiResponse.sendSuccess(res, { custom_uid, status: 'sent' }, 200);
+    } else {
+      logger.error(`Failed to send media message to ${to}`);
+      return apiResponse.sendError(res, 'Failed to send media message.', 500);
+    }
+  } catch (error) {
+    const uid = req.body?.uid || 'unknown';
+    logger.error(`Error sending media message for user ${uid}: ${error.message}`);
+    return apiResponse.sendError(res, 'Error sending media message.', 500);
+  }
+};
