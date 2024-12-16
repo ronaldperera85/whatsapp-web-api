@@ -141,7 +141,7 @@ const setupMessageListener = (client, uid) => {
         endpoint,
         payload,
         {
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          headers: { "Content-Type": "application/json" },
         }
       );
       logger.info(`Message successfully sent to endpoint: ${response.status}`, { timestamp: new Date().toISOString() });
