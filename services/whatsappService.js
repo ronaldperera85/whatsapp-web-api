@@ -7,6 +7,7 @@ const axios = require('axios'); // Importar Axios para enviar el POST
 const logger = require('../utils/logger'); // Importar logger
 const multer = require('multer'); // Para el manejo de archivos
 const FormData = require('form-data');
+const { exec } = require('child_process'); // Para ejecutar comandos de terminal
 
 const sessionsPath = path.join(__dirname, '..', '.wwebjs_auth');
 const activeClients = {}; // Mantener las sesiones activas en memoria
@@ -32,156 +33,164 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-//construir el cuerpo del mensaje
+// Conversión de audio a AAC
+const convertToAAC = async (inputPath) => {
+  const outputPath = inputPath.replace(/\.\w+$/, `_converted.aac`);
+  return new Promise((resolve, reject) => {
+    const command = `ffmpeg -i "${inputPath}" -y -vn -acodec aac "${outputPath}"`;
+    exec(command, (error, stdout, stderr) => {
+      if (error) {
+        logger.error(`Error converting audio to AAC: ${stderr}`);
+        return reject(new Error('Failed to convert audio to AAC.'));
+      }
+      logger.info(`Audio converted to AAC: ${outputPath}`);
+      resolve(outputPath);
+    });
+  });
+};
+
+// Construcción del cuerpo del mensaje
 const buildMessageBody = (msg, type, publicUrl = null, thumb = null) => {
   switch (type) {
-    case "chat":
+    case 'chat':
       return { text: msg.body };
-
-    case "image":
-    case "video":
-    case "document":
-    case "sticker":
+    case 'image':
+    case 'video':
+    case 'document':
+    case 'sticker':
+    case 'audio':
       return {
-        caption: msg.caption || "",
-        mimetype: msg.mimetype || "",
-        size: msg.size || "",
-        duration: type === "video" ? msg.duration || "" : undefined, // Solo aplica a videos
-        thumb: thumb || "",
-        url: publicUrl || "",
+        caption: msg.caption || '',
+        mimetype: msg.mimetype || '',
+        size: msg.size || '',
+        duration: type === 'video' ? msg.duration || '' : undefined,
+        thumb: thumb || '',
+        url: publicUrl || '',
       };
-
-    case "location":
+    case 'location':
       return {
-        name: msg.locationName || "",
-        lng: msg.locationLongitude || "",
-        lat: msg.locationLatitude || "",
-        thumb: thumb || "",
+        name: msg.locationName || '',
+        lng: msg.locationLongitude || '',
+        lat: msg.locationLatitude || '',
+        thumb: thumb || '',
       };
-
-    case "vcard":
+    case 'vcard':
       return {
-        contact: "vcard",
-        vcard: msg.body || "", // Aquí se asume que `msg.body` contiene el vCard
+        contact: 'vcard',
+        vcard: msg.body || '',
       };
-
     default:
       throw new Error(`Unsupported message type: ${type}`);
   }
 };
 
-// Función para subir archivos al endpoint
+// Subir archivo
 const uploadFile = async (filePath, originalName) => {
   try {
-    // Asegúrate de que el archivo existe antes de intentar procesarlo
     if (!fs.existsSync(filePath)) {
       throw new Error(`File not found: ${filePath}`);
     }
 
     const formData = new FormData();
-    formData.append('file', fs.createReadStream(filePath), originalName); // Usar createReadStream
+    formData.append('file', fs.createReadStream(filePath), originalName);
 
     const response = await axios.post(FILE_UPLOAD_ENDPOINT, formData, {
       headers: {
-        'token': FILE_UPLOAD_TOKEN, // Token específico
-      'Content-Type': 'multipart/form-data',
-        ...formData.getHeaders(), // Headers generados por form-data
+        token: FILE_UPLOAD_TOKEN,
+        'Content-Type': 'multipart/form-data',
+        ...formData.getHeaders(),
       },
     });
 
-    return response.data.content.publicUrl; // URL pública del archivo
+    return response.data.content.publicUrl;
   } catch (error) {
     logger.error(`Error uploading file: ${error.message}`);
     return null;
   }
 };
 
-// Configurar interceptación de mensajes
+// Interceptar mensajes
 const setupMessageListener = (client, uid) => {
-  client.on("message", async (msg) => {
+  client.on('message', async (msg) => {
     try {
-      if (msg.from.startsWith("status@")) {
-        return; // Ignorar mensajes de estado
-      }
+      if (msg.from.startsWith('status@')) return;
 
-      logger.info(`[Incoming] Message from ${msg.from.replace("@c.us", "")} to ${uid}: ${msg.body || "(Media message)"}`);
+      logger.info(`[Incoming] Message from ${msg.from.replace('@c.us', '')} to ${uid}: ${msg.body || '(Media message)'}`);
 
-      let type = "chat"; // Tipo por defecto (texto)
-      let thumb = null; // Miniatura (thumb) si aplica
-      let publicUrl = null; // URL del archivo si aplica
+      let type = 'chat';
+      let thumb = null;
+      let publicUrl = null;
 
-      // Procesar medios si el mensaje tiene media
       if (msg.hasMedia) {
         const media = await msg.downloadMedia();
 
         if (!media || !media.data) {
-          throw new Error("Media data is undefined or invalid.");
+          throw new Error('Media data is undefined or invalid.');
         }
 
-        type = media.mimetype.startsWith("image")
-          ? "image"
-          : media.mimetype.startsWith("video")
-          ? "video"
-          : media.mimetype.startsWith("application")
-          ? "document"
-          : media.mimetype.startsWith("audio")
-          ? "audio"
-          : "sticker";
+        type = media.mimetype.startsWith('image')
+          ? 'image'
+          : media.mimetype.startsWith('video')
+          ? 'video'
+          : media.mimetype.startsWith('application')
+          ? 'document'
+          : media.mimetype.startsWith('audio')
+          ? 'audio'
+          : 'sticker';
 
-        // Guardar archivo temporalmente
-        const extension = media.mimetype.split("/")[1] || "bin";
-        const sanitizedFilename = (media.filename || `file_${Date.now()}.${extension}`).replace(/[^a-zA-Z0-9._-]/g, "_");
+        const extension = media.mimetype.split('/')[1] || 'bin';
+        const sanitizedFilename = (media.filename || `file_${Date.now()}.${extension}`).replace(/[^a-zA-Z0-9._-]/g, '_');
         const filePath = path.join(tempDir, `${msg.id.id}-${sanitizedFilename}`);
-        const fileBuffer = Buffer.from(media.data, "base64");
-        fs.writeFileSync(filePath, fileBuffer);
+        fs.writeFileSync(filePath, Buffer.from(media.data, 'base64'));
 
         try {
-          // Subir archivo al FILE_UPLOAD_ENDPOINT
-          publicUrl = await uploadFile(filePath, sanitizedFilename);
-          if (!publicUrl) throw new Error("Failed to upload the file.");
-
-          // Si hay miniatura (thumb), úsala
-          thumb = media.thumbnail || null;
-        } finally {
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
+          if (type === 'audio') {
+            // Convertir audio a AAC
+            const convertedPath = await convertToAAC(filePath);
+            publicUrl = await uploadFile(convertedPath, path.basename(convertedPath));
+            fs.unlinkSync(convertedPath);
+          } else if (type === 'video') {
+            // Manejar videos (sin conversión adicional)
+            publicUrl = await uploadFile(filePath, sanitizedFilename);
+            thumb = media.thumbnail || null; // Usar miniatura si está disponible
+          } else {
+            publicUrl = await uploadFile(filePath, sanitizedFilename);
           }
+
+          if (!publicUrl) throw new Error('Failed to upload the file.');
+        } finally {
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         }
-      } else if (msg.type === "location") {
-        type = "location";
+      } else if (msg.type === 'location') {
+        type = 'location';
         thumb = msg.thumb || null;
-      } else if (msg.type === "vcard") {
-        type = "vcard";
+      } else if (msg.type === 'vcard') {
+        type = 'vcard';
       }
 
-      // Construir el cuerpo del mensaje
       const body = buildMessageBody(msg, type, publicUrl, thumb);
-
-      // Generar el JSON final para el POST_ENDPOINT
       const payload = {
-        event: "message",
+        event: 'message',
         token: sessionManager.getToken(uid),
         uid,
         contact: {
-          uid: msg.from.replace("@c.us", ""),
-          name: msg._data.notifyName || "Unknown",
-          type: "user",
+          uid: msg.from.replace('@c.us', ''),
+          name: msg._data.notifyName || 'Unknown',
+          type: 'user',
         },
         message: {
           dtm: Math.floor(Date.now() / 1000),
           uid: msg.id.id,
-          cuid: "",
-          dir: "i",
-          type: type,
-          body: body,
+          cuid: '',
+          dir: 'i',
+          type,
+          body,
           ack: msg.ack.toString(),
         },
       };
 
-      // Enviar el JSON al POST_ENDPOINT
-      const endpoint = process.env.POST_ENDPOINT;
-      await axios.post(endpoint, payload, {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      await axios.post(process.env.POST_ENDPOINT, payload, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
 
       logger.info(`Message of type '${type}' sent successfully to endpoint.`);
@@ -190,6 +199,7 @@ const setupMessageListener = (client, uid) => {
     }
   });
 };
+
 
 // Obtener el estado de la sesión
 const getSessionState = (uid) => {
