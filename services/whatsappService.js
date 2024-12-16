@@ -32,6 +32,45 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+//construir el cuerpo del mensaje
+const buildMessageBody = (msg, type, publicUrl = null, thumb = null) => {
+  switch (type) {
+    case "chat":
+      return { text: msg.body };
+
+    case "image":
+    case "video":
+    case "document":
+    case "sticker":
+      return {
+        caption: msg.caption || "",
+        mimetype: msg.mimetype || "",
+        size: msg.size || "",
+        duration: type === "video" ? msg.duration || "" : undefined, // Solo aplica a videos
+        thumb: thumb || "",
+        url: publicUrl || "",
+      };
+
+    case "location":
+      return {
+        name: msg.locationName || "",
+        lng: msg.locationLongitude || "",
+        lat: msg.locationLatitude || "",
+        thumb: thumb || "",
+      };
+
+    case "vcard":
+      return {
+        contact: "vcard",
+        vcard: msg.body || "", // Aquí se asume que `msg.body` contiene el vCard
+      };
+
+    default:
+      throw new Error(`Unsupported message type: ${type}`);
+  }
+};
+
+
 // Función para subir archivos al endpoint
 const uploadFile = async (filePath, originalName) => {
   try {
@@ -60,110 +99,99 @@ const uploadFile = async (filePath, originalName) => {
 
 // Configurar interceptación de mensajes
 const setupMessageListener = (client, uid) => {
-  client.on('message', async (msg) => {
-      try {
-          if (msg.from.startsWith('status@')) {
-              return; // Ignorar mensajes de estado
-          }
-
-          logger.info(`[Incoming] Message from ${msg.from.replace("@c.us", "")} to ${uid}: ${msg.body || "(Media message)"}`);
-
-          if (msg.hasMedia) {
-            const media = await msg.downloadMedia();
-          
-            if (!media || !media.data) {
-              throw new Error('Media data is undefined or invalid.');
-            }
-          
-            const extension = media.mimetype.split('/')[1] || 'bin';
-            const sanitizedFilename = (media.filename || `file_${Date.now()}.${extension}`).replace(/[^a-zA-Z0-9._-]/g, '_');
-            const filePath = path.join(tempDir, `${msg.id.id}-${sanitizedFilename}`);
-            const fileBuffer = Buffer.from(media.data, 'base64');
-          
-            // Guardar archivo temporalmente
-            fs.writeFileSync(filePath, fileBuffer);
-            logger.info(`File saved temporarily at: ${filePath}`);
-          
-            try {
-              // Subir el archivo al endpoint
-              const publicUrl = await uploadFile(filePath, sanitizedFilename);
-              if (!publicUrl) throw new Error('Failed to upload the file.');
-          
-              logger.info(`File uploaded successfully. Public URL: ${publicUrl}`);
-          
-              // Enviar el payload del archivo subido
-              const payload = {
-                event: "media_message",
-                token: sessionManager.getToken(uid),
-                uid,
-                contact: {
-                  uid: msg.from.replace("@c.us", ""),
-                  name: msg._data.notifyName || "Unknown",
-                  type: "user",
-                },
-                message: {
-                  dtm: Math.floor(Date.now() / 1000),
-                  uid: msg.id.id,
-                  cuid: "",
-                  dir: "i",
-                  type: media.mimetype.split('/')[0],
-                  body: {
-                    url: `${publicUrl}`,
-                  },
-                  ack: msg.ack.toString(),
-                },
-              };
-          
-              const endpoint = process.env.POST_ENDPOINT;
-              await axios.post(endpoint, payload, {
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-              });
-          
-              logger.info(`Media message sent successfully to endpoint.`);
-            } finally {
-              // Eliminar archivo después de todas las operaciones
-              if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-                logger.info(`Temporary file deleted: ${filePath}`);
-              }
-            }
-          
-          } else {
-              // Procesar mensajes de texto normales
-              const payload = {
-                  event: "message",
-                  token: sessionManager.getToken(uid),
-                  uid,
-                  contact: {
-                      uid: msg.from.replace("@c.us", ""),
-                      name: msg._data.notifyName || "Unknown",
-                      type: "user",
-                  },
-                  message: {
-                      dtm: Math.floor(Date.now() / 1000),
-                      uid: msg.id.id,
-                      cuid: "",
-                      dir: "i",
-                      type: "chat",
-                      body: {
-                          text: msg.body,
-                      },
-                      ack: msg.ack.toString(),
-                  },
-              };
-
-              const endpoint = process.env.POST_ENDPOINT;
-              await axios.post(endpoint, payload, {
-                  headers: { "Content-Type": "application/x-www-form-urlencoded" },
-              });
-
-              logger.info(`Text message sent successfully to endpoint.`);
-          }
-      } catch (error) {
-          logger.error(`Error processing message: ${error.message}`);
+  client.on("message", async (msg) => {
+    try {
+      if (msg.from.startsWith("status@")) {
+        return; // Ignorar mensajes de estado
       }
+
+      logger.info(`[Incoming] Message from ${msg.from.replace("@c.us", "")} to ${uid}: ${msg.body || "(Media message)"}`);
+
+      let type = "chat"; // Tipo por defecto (texto)
+      let thumb = null; // Miniatura (thumb) si aplica
+      let publicUrl = null; // URL del archivo si aplica
+
+      // Procesar medios si el mensaje tiene media
+      if (msg.hasMedia) {
+        const media = await msg.downloadMedia();
+
+        if (!media || !media.data) {
+          throw new Error("Media data is undefined or invalid.");
+        }
+
+        type = media.mimetype.startsWith("image")
+          ? "image"
+          : media.mimetype.startsWith("video")
+          ? "video"
+          : media.mimetype.startsWith("application")
+          ? "document"
+          : media.mimetype.startsWith("audio")
+          ? "audio"
+          : "sticker";
+
+        // Guardar archivo temporalmente
+        const extension = media.mimetype.split("/")[1] || "bin";
+        const sanitizedFilename = (media.filename || `file_${Date.now()}.${extension}`).replace(/[^a-zA-Z0-9._-]/g, "_");
+        const filePath = path.join(tempDir, `${msg.id.id}-${sanitizedFilename}`);
+        const fileBuffer = Buffer.from(media.data, "base64");
+        fs.writeFileSync(filePath, fileBuffer);
+
+        try {
+          // Subir archivo al FILE_UPLOAD_ENDPOINT
+          publicUrl = await uploadFile(filePath, sanitizedFilename);
+          if (!publicUrl) throw new Error("Failed to upload the file.");
+
+          // Si hay miniatura (thumb), úsala
+          thumb = media.thumbnail || null;
+        } finally {
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        }
+      } else if (msg.type === "location") {
+        type = "location";
+        thumb = msg.thumb || null;
+      } else if (msg.type === "vcard") {
+        type = "vcard";
+      }
+
+      // Construir el cuerpo del mensaje
+      const body = buildMessageBody(msg, type, publicUrl, thumb);
+
+      // Generar el JSON final para el POST_ENDPOINT
+      const payload = {
+        event: "message",
+        token: sessionManager.getToken(uid),
+        uid,
+        contact: {
+          uid: msg.from.replace("@c.us", ""),
+          name: msg._data.notifyName || "Unknown",
+          type: "user",
+        },
+        message: {
+          dtm: Math.floor(Date.now() / 1000),
+          uid: msg.id.id,
+          cuid: "",
+          dir: "i",
+          type: type,
+          body: body,
+          ack: msg.ack.toString(),
+        },
+      };
+
+      // Enviar el JSON al POST_ENDPOINT
+      const endpoint = process.env.POST_ENDPOINT;
+      await axios.post(endpoint, payload, {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+
+      logger.info(`Message of type '${type}' sent successfully to endpoint.`);
+    } catch (error) {
+      logger.error(`Error processing message: ${error.message}`);
+    }
   });
 };
+
 
 // Obtener el estado de la sesión
 const getSessionState = (uid) => {
