@@ -70,7 +70,6 @@ const buildMessageBody = (msg, type, publicUrl = null, thumb = null) => {
   }
 };
 
-
 // Función para subir archivos al endpoint
 const uploadFile = async (filePath, originalName) => {
   try {
@@ -191,7 +190,6 @@ const setupMessageListener = (client, uid) => {
     }
   });
 };
-
 
 // Obtener el estado de la sesión
 const getSessionState = (uid) => {
