@@ -1,13 +1,169 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode');
 const sessionManager = require('../utils/sessionManager');
 const axios = require('axios'); // Importar Axios para enviar el POST
 const logger = require('../utils/logger'); // Importar logger
+const multer = require('multer'); // Para el manejo de archivos
+const FormData = require('form-data');
 
 const sessionsPath = path.join(__dirname, '..', '.wwebjs_auth');
 const activeClients = {}; // Mantener las sesiones activas en memoria
+
+// Crear el directorio temporal si no existe
+const tempDir = path.join(__dirname, 'temp');
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir);
+}
+
+const FILE_UPLOAD_ENDPOINT = process.env.FILE_UPLOAD_ENDPOINT;
+const FILE_UPLOAD_TOKEN = process.env.FILE_UPLOAD_TOKEN;
+
+// Configuración de multer
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+      cb(null, tempDir);
+  },
+  filename: (req, file, cb) => {
+      cb(null, `${Date.now()}-${file.originalname}`);
+  },
+});
+
+const upload = multer({ storage });
+
+// Función para subir archivos al endpoint
+const uploadFile = async (filePath, originalName) => {
+  try {
+    // Asegúrate de que el archivo existe antes de intentar procesarlo
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`File not found: ${filePath}`);
+    }
+
+    const formData = new FormData();
+    formData.append('file', fs.createReadStream(filePath), originalName); // Usar createReadStream
+
+    const response = await axios.post(FILE_UPLOAD_ENDPOINT, formData, {
+      headers: {
+        'token': FILE_UPLOAD_TOKEN, // Token específico
+      'Content-Type': 'multipart/form-data',
+        ...formData.getHeaders(), // Headers generados por form-data
+      },
+    });
+
+    return response.data.content.publicUrl; // URL pública del archivo
+  } catch (error) {
+    logger.error(`Error uploading file: ${error.message}`);
+    return null;
+  }
+};
+
+// Configurar interceptación de mensajes
+const setupMessageListener = (client, uid) => {
+  client.on('message', async (msg) => {
+      try {
+          if (msg.from.startsWith('status@')) {
+              return; // Ignorar mensajes de estado
+          }
+
+          logger.info(`[Incoming] Message from ${msg.from.replace("@c.us", "")} to ${uid}: ${msg.body || "(Media message)"}`);
+
+          if (msg.hasMedia) {
+            const media = await msg.downloadMedia();
+          
+            if (!media || !media.data) {
+              throw new Error('Media data is undefined or invalid.');
+            }
+          
+            const extension = media.mimetype.split('/')[1] || 'bin';
+            const sanitizedFilename = (media.filename || `file_${Date.now()}.${extension}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+            const filePath = path.join(tempDir, `${msg.id.id}-${sanitizedFilename}`);
+            const fileBuffer = Buffer.from(media.data, 'base64');
+          
+            // Guardar archivo temporalmente
+            fs.writeFileSync(filePath, fileBuffer);
+            logger.info(`File saved temporarily at: ${filePath}`);
+          
+            try {
+              // Subir el archivo al endpoint
+              const publicUrl = await uploadFile(filePath, sanitizedFilename);
+              if (!publicUrl) throw new Error('Failed to upload the file.');
+          
+              logger.info(`File uploaded successfully. Public URL: ${publicUrl}`);
+          
+              // Enviar el payload del archivo subido
+              const payload = {
+                event: "media_message",
+                token: sessionManager.getToken(uid),
+                uid,
+                contact: {
+                  uid: msg.from.replace("@c.us", ""),
+                  name: msg._data.notifyName || "Unknown",
+                  type: "user",
+                },
+                message: {
+                  dtm: Math.floor(Date.now() / 1000),
+                  uid: msg.id.id,
+                  cuid: "",
+                  dir: "i",
+                  type: media.mimetype.split('/')[0],
+                  body: {
+                    url: `${publicUrl}`,
+                  },
+                  ack: msg.ack.toString(),
+                },
+              };
+          
+              const endpoint = process.env.POST_ENDPOINT;
+              await axios.post(endpoint, payload, {
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              });
+          
+              logger.info(`Media message sent successfully to endpoint.`);
+            } finally {
+              // Eliminar archivo después de todas las operaciones
+              if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+                logger.info(`Temporary file deleted: ${filePath}`);
+              }
+            }
+          
+          } else {
+              // Procesar mensajes de texto normales
+              const payload = {
+                  event: "message",
+                  token: sessionManager.getToken(uid),
+                  uid,
+                  contact: {
+                      uid: msg.from.replace("@c.us", ""),
+                      name: msg._data.notifyName || "Unknown",
+                      type: "user",
+                  },
+                  message: {
+                      dtm: Math.floor(Date.now() / 1000),
+                      uid: msg.id.id,
+                      cuid: "",
+                      dir: "i",
+                      type: "chat",
+                      body: {
+                          text: msg.body,
+                      },
+                      ack: msg.ack.toString(),
+                  },
+              };
+
+              const endpoint = process.env.POST_ENDPOINT;
+              await axios.post(endpoint, payload, {
+                  headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              });
+
+              logger.info(`Text message sent successfully to endpoint.`);
+          }
+      } catch (error) {
+          logger.error(`Error processing message: ${error.message}`);
+      }
+  });
+};
 
 // Obtener el estado de la sesión
 const getSessionState = (uid) => {
@@ -93,68 +249,6 @@ const createSession = (uid, qrCallback) => {
   client.initialize();
 };
 
-// Configurar interceptación de mensajes
-const setupMessageListener = (client, uid) => {
-  client.on('message', async (msg) => {
-       // Ignorar mensajes de estado
-      if (msg.from.startsWith('status@')) {
-        return; // Salir sin procesar el mensaje
-      }
-    logger.info(`[Incoming] Message from ${msg.from.replace("@c.us", "")} to ${uid}: ${msg.body}`, { timestamp: new Date().toISOString() });
-
-    // Obtener el token dinámico para este UID
-    const token = sessionManager.getToken(uid);
-    if (!token) {
-      logger.error(`No token found for user ${uid}`);
-      return;
-    }
-
-    const payload = {
-      event: "message",
-      token, // Token dinámico obtenido
-      uid,
-      contact: {
-        uid: msg.from.replace("@c.us", ""), // Número del remitente
-        name: msg._data.notifyName || "Unknown", // Nombre del contacto si está disponible
-        type: "user",
-      },
-      message: {
-        dtm: Math.floor(Date.now() / 1000), // Marca de tiempo en segundos
-        uid: msg.id.id, // ID único del mensaje
-        cuid: "", // Puedes ajustar esto según sea necesario
-        dir: "i", // Dirección "i" para mensajes entrantes
-        type: "chat", // Tipo de mensaje
-        body: {
-          text: msg.body, // Contenido del mensaje
-        },
-        ack: msg.ack.toString(), // Estado del mensaje
-      },
-    };
-
-    // Obtener la URL del endpoint desde el .env
-    const endpoint = process.env.POST_ENDPOINT;
-
-    if (!endpoint) {
-      logger.error('POST_ENDPOINT is not defined in the environment variables.');
-      return;
-    }
-
-    // Enviar el mensaje al endpoint
-    try {
-      const response = await axios.post(
-        endpoint,
-        payload,
-        {
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        }
-      );
-      logger.info(`Message successfully sent to endpoint: ${response.status}`, { timestamp: new Date().toISOString() });
-    } catch (error) {
-      logger.error(`Error sending message to endpoint: ${error.message}`, { timestamp: new Date().toISOString() });
-    }
-  });
-};
-
 // Desconectar una sesión
 const disconnectSession = (uid) => {
   if (activeClients[uid]) {
@@ -215,5 +309,7 @@ module.exports = {
   getSessionState,
   disconnectSession,
   sendMessage,
-  sendMediaMessage, // Exportamos la nueva función
+  sendMediaMessage,
+  setupMessageListener,
+  uploadFile,
 };
