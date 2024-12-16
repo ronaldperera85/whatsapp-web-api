@@ -96,6 +96,10 @@ const createSession = (uid, qrCallback) => {
 // Configurar interceptación de mensajes
 const setupMessageListener = (client, uid) => {
   client.on('message', async (msg) => {
+       // Ignorar mensajes de estado
+      if (msg.from.startsWith('status@')) {
+        return; // Salir sin procesar el mensaje
+      }
     logger.info(`[Incoming] Message from ${msg.from.replace("@c.us", "")} to ${uid}: ${msg.body}`, { timestamp: new Date().toISOString() });
 
     // Obtener el token dinámico para este UID
@@ -141,7 +145,7 @@ const setupMessageListener = (client, uid) => {
         endpoint,
         payload,
         {
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
         }
       );
       logger.info(`Message successfully sent to endpoint: ${response.status}`, { timestamp: new Date().toISOString() });
