@@ -33,6 +33,7 @@
     "asynckit": "^0.4.0",
     "available-typed-arrays": "^1.0.7",
     "aws-ssl-profiles": "^1.1.2",
+    "axios": "^1.7.9",
     "b4a": "^1.6.7",
     "babel-jest": "^29.7.0",
     "babel-plugin-istanbul": "^6.1.1",
