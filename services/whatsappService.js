@@ -12,6 +12,8 @@ const { exec } = require('child_process'); // Para ejecutar comandos de terminal
 const sessionsPath = path.join(__dirname, '..', '.wwebjs_auth');
 const activeClients = {}; // Mantener las sesiones activas en memoria
 
+const chromePath = path.join(__dirname, 'chrome', 'chrome.exe');
+
 // Crear el directorio temporal si no existe
 const tempDir = path.join(__dirname, 'temp');
 if (!fs.existsSync(tempDir)) {
@@ -165,7 +167,7 @@ const setupMessageListener = (client, uid) => {
         type = 'location';
         thumb = msg.thumb || null;
       } else if (msg.type === 'vcard') {
-        type = 'vcard';
+        type = 'chat';
       }
 
       const body = buildMessageBody(msg, type, publicUrl, thumb);
@@ -200,7 +202,6 @@ const setupMessageListener = (client, uid) => {
   });
 };
 
-
 // Obtener el estado de la sesión
 const getSessionState = (uid) => {
   const sessionPath = path.join(sessionsPath, uid);
@@ -226,8 +227,13 @@ const initializeSessions = () => {
       const client = new Client({
         authStrategy: new LocalAuth({
           clientId: uid,
-          dataPath: userSessionPath,
+          dataPath: path.join(sessionsPath, uid),
         }),
+        puppeteer: {
+          executablePath: chromePath, // Usar la ruta generada dinámicamente
+          headless: true, // Modo sin interfaz gráfica
+          args: ['--no-sandbox', '--disable-setuid-sandbox'], // Opciones adicionales
+        },
       });
 
       client.on('ready', () => {
@@ -255,6 +261,11 @@ const createSession = (uid, qrCallback) => {
       clientId: uid,
       dataPath: path.join(sessionsPath, uid),
     }),
+    puppeteer: {
+      executablePath: chromePath, // Usar la ruta generada dinámicamente
+      headless: true, // Modo sin interfaz gráfica
+      args: ['--no-sandbox', '--disable-setuid-sandbox'], // Opciones adicionales
+    },
   });
 
   client.on('qr', async (qr) => {
