@@ -232,8 +232,21 @@ const initializeSessions = () => {
         puppeteer: {
           executablePath: chromePath, // Usar la ruta generada dinámicamente
           headless: true, // Modo sin interfaz gráfica
-          args: ['--no-sandbox', '--disable-setuid-sandbox'], // Opciones adicionales
-        },
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--disable-gpu',
+            '--disable-background-timer-throttling',
+            '--disable-extensions',
+            '--disable-default-apps',
+            '--disable-popup-blocking',
+            '--disable-sync',
+            '--no-first-run',
+            '--disable-infobars',
+          ],
+        }
       });
 
       client.on('ready', () => {
@@ -264,8 +277,21 @@ const createSession = (uid, qrCallback) => {
     puppeteer: {
       executablePath: chromePath, // Usar la ruta generada dinámicamente
       headless: true, // Modo sin interfaz gráfica
-      args: ['--no-sandbox', '--disable-setuid-sandbox'], // Opciones adicionales
-    },
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--disable-gpu',
+        '--disable-background-timer-throttling',
+        '--disable-extensions',
+        '--disable-default-apps',
+        '--disable-popup-blocking',
+        '--disable-sync',
+        '--no-first-run',
+        '--disable-infobars',
+      ],
+    }
   });
 
   client.on('qr', async (qr) => {
