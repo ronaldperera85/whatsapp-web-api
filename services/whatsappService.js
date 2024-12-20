@@ -143,6 +143,12 @@ const setupMessageListener = (client, uid) => {
         const sanitizedFilename = (media.filename || `file_${Date.now()}.${extension}`).replace(/[^a-zA-Z0-9._-]/g, '_');
         const filePath = path.join(tempDir, `${msg.id.id}-${sanitizedFilename}`);
         fs.writeFileSync(filePath, Buffer.from(media.data, 'base64'));
+        // Obtener el tamaño del archivo en bytes
+        const stats = fs.statSync(filePath);
+        const fileSizeInBytes = stats.size;
+
+        // Registrar el tamaño del archivo
+        logger.info(`Media file downloaded. Size: ${fileSizeInBytes} bytes. Path: ${filePath}`);
 
         try {
           if (type === 'audio') {
