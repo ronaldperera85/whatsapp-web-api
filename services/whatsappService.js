@@ -69,13 +69,12 @@ const buildMessageBody = (msg, type, publicUrl = null, thumb = null) => {
         thumb: thumb || '',
         url: publicUrl || '',
       };
-    case 'location':
-      return {
-        name: msg.locationName || '',
-        lng: msg.locationLongitude || '',
-        lat: msg.locationLatitude || '',
-        thumb: thumb || '',
-      };
+      case 'location':
+        logger.info(`Location details: ${JSON.stringify(msg.locationData)}`); // Verificar datos
+        return {
+          lng: msg.location?.longitude || msg.locationLongitude || '',
+          lat: msg.location?.latitude || msg.locationLatitude || '',
+        };           
     case 'vcard':
       return {
         contact: 'vcard',
@@ -151,12 +150,9 @@ const setupMessageListener = (client, uid) => {
             const convertedPath = await convertToAAC(filePath);
             publicUrl = await uploadFile(convertedPath, path.basename(convertedPath));
             fs.unlinkSync(convertedPath);
-          } else if (type === 'video') {
-            // Manejar videos (sin conversión adicional)
-            publicUrl = await uploadFile(filePath, sanitizedFilename);
-            thumb = media.thumbnail || null; // Usar miniatura si está disponible
           } else {
             publicUrl = await uploadFile(filePath, sanitizedFilename);
+            thumb = media.thumbnail || null; // Usar miniatura si está disponible
           }
 
           if (!publicUrl) throw new Error('Failed to upload the file.');
@@ -164,8 +160,18 @@ const setupMessageListener = (client, uid) => {
           if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         }
       } else if (msg.type === 'location') {
+        // Procesar mensajes de tipo 'location'
         type = 'location';
         thumb = msg.thumb || null;
+
+        const locationData = {
+          name: msg.locationName || '', // El nombre si está disponible
+          lng: msg.locationLongitude || '', // Longitud
+          lat: msg.locationLatitude || '', // Latitud
+          thumb: thumb || '', // Miniatura de la ubicación
+        };
+
+        publicUrl = JSON.stringify(locationData); // Usamos los datos como JSON para el endpoint
       } else if (msg.type === 'vcard') {
         type = 'chat';
       }
@@ -194,7 +200,7 @@ const setupMessageListener = (client, uid) => {
       await axios.post(process.env.POST_ENDPOINT, payload, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
-
+      logger.info(`Location payload to send: ${JSON.stringify(payload)}`);
       logger.info(`Message of type '${type}' sent successfully to endpoint.`);
     } catch (error) {
       logger.error(`Error processing message: ${error.message}`);
