@@ -1,18 +1,18 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const fs = require('fs');
-const path = require('path');
-const qrcode = require('qrcode');
-const sessionManager = require('../utils/sessionManager');
+const { Client, LocalAuth } = require('whatsapp-web.js'); // Importar el cliente de WhatsApp
+const fs = require('fs'); // Importar el módulo de sistema de archivos
+const path = require('path'); // Importar el módulo de rutas
+const qrcode = require('qrcode'); // Importar el módulo de generación de códigos QR
+const sessionManager = require('../utils/sessionManager'); // Importar el gestor de sesiones
 const axios = require('axios'); // Importar Axios para enviar el POST
-const logger = require('../utils/logger'); // Importar logger
+const logger = require('../utils/logger'); // Importar logger parar registrar eventos
 const multer = require('multer'); // Para el manejo de archivos
-const FormData = require('form-data');
+const FormData = require('form-data'); // Para enviar datos de formulario
 const { exec } = require('child_process'); // Para ejecutar comandos de terminal
 
-const sessionsPath = path.join(__dirname, '..', '.wwebjs_auth');
+const sessionsPath = path.join(__dirname, '..', '.wwebjs_auth'); // Ruta de las sesiones
 const activeClients = {}; // Mantener las sesiones activas en memoria
 
-const chromePath = path.join(__dirname, 'chrome', 'chrome.exe');
+const chromePath = path.join(__dirname, 'chrome', 'chrome.exe'); // Ruta de Chrome
 
 // Crear el directorio temporal si no existe
 const tempDir = path.join(__dirname, 'temp');
@@ -20,8 +20,8 @@ if (!fs.existsSync(tempDir)) {
   fs.mkdirSync(tempDir);
 }
 
-const FILE_UPLOAD_ENDPOINT = process.env.FILE_UPLOAD_ENDPOINT;
-const FILE_UPLOAD_TOKEN = process.env.FILE_UPLOAD_TOKEN;
+const FILE_UPLOAD_ENDPOINT = process.env.FILE_UPLOAD_ENDPOINT; // Endpoint para subir archivos
+const FILE_UPLOAD_TOKEN = process.env.FILE_UPLOAD_TOKEN; // Token para subir archivos
 
 // Configuración de multer
 const storage = multer.diskStorage({

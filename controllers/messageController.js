@@ -1,4 +1,4 @@
-const jwt = require('jsonwebtoken'); // Asegúrate de importar jsonwebtoken
+const jwt = require('jsonwebtoken');
 const whatsappService = require('../services/whatsappService');
 const apiResponse = require('../utils/apiResponse');
 const logger = require('../utils/logger');
@@ -107,7 +107,6 @@ exports.sendMessage = async (req, res) => {
     return apiResponse.sendError(res, 'Error sending message.', 500);
   }
 };
-
 
 exports.sendMediaMessage = async (req, res) => {
   try {

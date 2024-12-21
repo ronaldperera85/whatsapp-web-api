@@ -1,4 +1,4 @@
-// utils/logger.js
+// Exportar un logger con winston para imprimir logs en la consola y guardarlos en un archivo
 const winston = require('winston');
 
 // Crear el logger

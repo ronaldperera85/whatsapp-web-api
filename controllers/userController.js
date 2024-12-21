@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const apiResponse = require('../utils/apiResponse');
 const whatsappService = require('../services/whatsappService');
-const logger = require('../utils/logger'); // Importar el logger
+const logger = require('../utils/logger');
 
 // Simulación de base de datos (reemplazar con persistencia real en producción)
 const users = [];
