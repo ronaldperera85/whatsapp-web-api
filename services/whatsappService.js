@@ -9,6 +9,7 @@ const multer = require('multer'); // Para el manejo de archivos
 const FormData = require('form-data'); // Para enviar datos de formulario
 const { exec } = require('child_process'); // Para ejecutar comandos de terminal
 
+
 const sessionsPath = path.join(__dirname, '..', '.wwebjs_auth'); // Ruta de las sesiones
 const activeClients = {}; // Mantener las sesiones activas en memoria
 
@@ -274,65 +275,104 @@ const initializeSessions = () => {
   });
 };
 
+
 // Crear una sesión de WhatsApp para un usuario
-const createSession = (uid, qrCallback) => {
+const createSession = async (uid, qrCallback) => {
+  const sessions = sessionManager.readSessions();
+
+  // Verificar si ya existe una sesión activa
   if (activeClients[uid]) {
-    logger.warn(`Session already exists for user ${uid}`);
-    return;
+      logger.warn(`[Session] Destroying existing session for user ${uid}`);
+      await activeClients[uid].destroy();
+      delete activeClients[uid];
+      sessionManager.deleteSession(uid, sessionsPath);
   }
 
+  // Si la sesión no está autenticada en sessions.json, eliminarla
+  if (sessions[uid] && !sessions[uid].authenticated) {
+      logger.info(`[Session] Removing unauthenticated session for user ${uid}`);
+      sessionManager.deleteSession(uid, sessionsPath);
+  }
+
+  logger.info(`[Session] Creating session for user ${uid}`);
   const client = new Client({
-    authStrategy: new LocalAuth({
-      clientId: uid,
-      dataPath: path.join(sessionsPath, uid),
-    }),
-    puppeteer: {
-      executablePath: chromePath, // Usar la ruta generada dinámicamente
-      headless: true, // Modo sin interfaz gráfica
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-        '--disable-background-timer-throttling',
-        '--disable-extensions',
-        '--disable-default-apps',
-        '--disable-popup-blocking',
-        '--disable-sync',
-        '--no-first-run',
-        '--disable-infobars',
-      ],
-    }
+      authStrategy: new LocalAuth({
+          clientId: uid,
+          dataPath: path.join(sessionsPath, uid),
+      }),
+      puppeteer: {
+          executablePath: chromePath,
+          headless: true,
+          args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-accelerated-2d-canvas',
+              '--disable-gpu',
+              '--no-first-run',
+              '--disable-infobars',
+          ],
+      },
   });
 
+  let qrCodeGenerated = false;
+
+  // Establecer un temporizador para destruir sesiones no autenticadas
+  const qrTimeout = setTimeout(async () => {
+      if (!qrCodeGenerated) {
+          logger.warn(`[QR Timeout] QR for user ${uid} expired. Destroying session...`);
+          try {
+              await client.destroy();
+              delete activeClients[uid];
+              sessionManager.deleteSession(uid, sessionsPath);
+          } catch (err) {
+              logger.error(`[QR Timeout] Failed to destroy session for user ${uid}: ${err.message}`);
+          }
+      }
+  }, 60000); // 1 minuto
+
+  activeClients[uid] = client;
+
   client.on('qr', async (qr) => {
-    logger.info(`QR for user ${uid} generated`);
-    const qrBase64 = await qrcode.toDataURL(qr);
-    qrCallback(qrBase64);
+      if (!qrCodeGenerated) {
+          clearTimeout(qrTimeout);
+          qrCodeGenerated = true;
+
+          const qrBase64 = await qrcode.toDataURL(qr);
+          logger.info(`[QR] QR for user ${uid} generated`);
+          qrCallback(qrBase64, null);
+      }
   });
 
   client.on('ready', () => {
-    logger.info(`WhatsApp client for ${uid} is ready`);
-    activeClients[uid] = client;
-    sessionManager.updateSessionAuth(uid, true); // Marcar como autenticado
+      clearTimeout(qrTimeout);
+      logger.info(`[Ready] WhatsApp client for ${uid} is ready`);
+      sessionManager.addSession(uid, sessionManager.getToken(uid));
+      sessionManager.updateSessionAuth(uid, true);
   });
 
-  client.on('authenticated', () => {
-    logger.info(`Authenticated for ${uid}`);
+  client.on('auth_failure', (msg) => {
+      logger.error(`[Auth Failure] Authentication failed for user ${uid}: ${msg}`);
+      delete activeClients[uid];
+      qrCallback(null, 'Authentication failed.');
   });
 
-  client.on('disconnected', () => {
-    logger.warn(`Client for ${uid} disconnected`);
-    delete activeClients[uid];
-    sessionManager.updateSessionAuth(uid, false); // Marcar como no autenticado
+  client.on('disconnected', (reason) => {
+      logger.warn(`[Disconnected] Client for ${uid} disconnected: ${reason}`);
+      delete activeClients[uid];
+      sessionManager.updateSessionAuth(uid, false);
   });
 
-  // Configurar interceptación de mensajes
-  setupMessageListener(client, uid);
-
-  client.initialize();
+  try {
+      await client.initialize();
+      logger.info(`[Init] Client for user ${uid} initialized.`);
+  } catch (error) {
+      logger.error(`[Init Error] Failed to initialize client for user ${uid}: ${error.message}`);
+      delete activeClients[uid];
+      qrCallback(null, `Failed to initialize client: ${error.message}`);
+  }
 };
+
 
 // Desconectar una sesión
 const disconnectSession = (uid) => {
