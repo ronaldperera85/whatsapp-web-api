@@ -96,6 +96,7 @@ const createClient = (uid, useChrome = false) => {
     ? {
         executablePath: chromePath,
         headless: true,
+        timeout: 60000, // 60 segundos
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -106,6 +107,7 @@ const createClient = (uid, useChrome = false) => {
       }
     : {
         headless: true,
+        timeout: 60000, // 60 segundos
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -122,6 +124,24 @@ const createClient = (uid, useChrome = false) => {
     puppeteer: puppeteerConfig,
   });
 };
+
+const retryInitialize = async (uid, retries = 3) => {
+  while (retries > 0) {
+    try {
+      logger.info(`Retrying initialization for client ${uid} (${retries} attempts left)...`);
+      const client = createClient(uid);
+      await client.initialize();
+      activeClients[uid] = client;
+      logger.info(`[Ready] WhatsApp client for ${uid} is ready after retry`);
+      return;
+    } catch (error) {
+      logger.error(`Retry failed for client ${uid}: ${error.message}`);
+      retries -= 1;
+    }
+  }
+  logger.error(`All retries failed for client ${uid}`);
+};
+
 
 const setupMessageListener = (client, uid) => {
   client.removeAllListeners('message');
@@ -224,8 +244,9 @@ const initializeSessions = () => {
         }
       });
       client.initialize().catch((error) => {
-        logger.error(`Failed to initialize client for ${uid}: ${error.message}`);
-      });
+        logger.error(`Error initializing client for user ${uid}: ${error.message}`);
+        logger.debug(`Stack trace for client ${uid}: ${error.stack}`);
+      });      
       setupMessageListener(client, uid);
     }
   });
@@ -346,4 +367,5 @@ module.exports = {
   sendMediaMessage,
   setupMessageListener,
   uploadFile,
+  retryInitialize,
 };
