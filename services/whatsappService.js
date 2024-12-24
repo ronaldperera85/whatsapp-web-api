@@ -207,7 +207,7 @@ const setupMessageListener = (client, uid) => {
       await axios.post(process.env.POST_ENDPOINT, payload, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
-      logger.info(`Location payload to send: ${JSON.stringify(payload)}`);
+      //logger.info(`Location payload to send: ${JSON.stringify(payload)}`);
       logger.info(`Message of type '${type}' sent successfully to endpoint.`);
     } catch (error) {
       logger.error(`Error processing message: ${error.message}`);
