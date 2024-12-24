@@ -214,6 +214,7 @@ const initializeSessions = () => {
   directories.forEach((uid) => {
     const userSessionPath = path.join(sessionsPath, uid);
     if (fs.statSync(userSessionPath).isDirectory()) {
+      logger.info(`Initializing client for user ${uid}`);
       const client = createClient(uid);
       client.on('ready', () => {
         logger.info(`[Ready] WhatsApp client for ${uid} is ready`);
@@ -246,6 +247,7 @@ const createSession = async (uid, qrCallback) => {
   if (sessions[uid] && !sessions[uid].authenticated) {
     sessionManager.deleteSession(uid, sessionsPath);
   }
+  logger.info(`Initializing client for user ${uid}`);
   const client = createClient(uid);
   let qrCodeGenerated = false;
   const qrTimeout = setTimeout(async () => {
@@ -285,6 +287,7 @@ const createSession = async (uid, qrCallback) => {
   try {
     await client.initialize();
   } catch (error) {
+    logger.error(`Error initializing client for user ${uid}: ${error.message}`);
     delete activeClients[uid];
     qrCallback(null, `Failed to initialize client: ${error.message}`);
   }
