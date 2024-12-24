@@ -1,10 +1,6 @@
 {
   "584125927917": {
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiI1ODQxMjU5Mjc5MTciLCJpYXQiOjE3MzQ5OTIxNjAsImV4cCI6MTczNDk5NTc2MH0.drsKyyVahS5sl0Z7A1ozzl-gDndvLnXtBG7YvDyyRCY",
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiI1ODQxMjU5Mjc5MTciLCJpYXQiOjE3MzUwMDAxMzgsImV4cCI6MTczNTAwMzczOH0.dep3fGWqoV5L1mfYQ6nYxxOlyg2iXGeXSKuN0ra87d8",
     "authenticated": true
-  },
-  "584246434313": {
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOiI1ODQyNDY0MzQzMTMiLCJpYXQiOjE3MzQ5OTIzNjEsImV4cCI6MTczNDk5NTk2MX0.gPbyE-lX9an3YQiS6Hj6RSiD0Zb7FZ9qCP7gY6grVDE",
-    "authenticated": false
   }
 }

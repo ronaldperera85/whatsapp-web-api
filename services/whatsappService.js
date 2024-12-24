@@ -117,7 +117,7 @@ const setupMessageListener = (client, uid) => {
     try {
       if (msg.from.startsWith('status@')) return;
 
-      logger.info(`[Incoming] Message from ${msg.from.replace('@c.us', '')} to ${uid}: ${msg.body || '(Media message)'}`);
+      logger.info(`[Incoming] [${new Date().toISOString()}] Message from ${msg.from.replace('@c.us', '')} to ${uid} (Type: ${msg.type}): ${msg.body || '(Media message)'}`);
 
       let type = 'chat';
       let thumb = null;
@@ -274,7 +274,6 @@ const initializeSessions = () => {
     }
   });
 };
-
 
 // Crear una sesión de WhatsApp para un usuario
 const createSession = async (uid, qrCallback) => {
