@@ -301,10 +301,17 @@ const createSession = async (uid, qrCallback) => {
     delete activeClients[uid];
     qrCallback(null, 'Authentication failed.');
   });
-  client.on('disconnected', (reason) => {
-    delete activeClients[uid];
-    sessionManager.updateSessionAuth(uid, false);
-  });
+  client.on('disconnected', async (reason) => {
+    logger.warn(`[Disconnected] Client for ${uid} disconnected due to: ${reason}`);
+    try {
+      // Remueve el cliente de la lista de activos y limpia la sesión local
+      delete activeClients[uid];
+      await sessionManager.deleteSession(uid, sessionsPath); // Limpia la sesión local
+      logger.info(`Session for user ${uid} removed successfully.`);
+    } catch (error) {
+      logger.error(`Error while removing session for user ${uid}: ${error.message}`);
+    }
+  });  
   try {
     await client.initialize();
   } catch (error) {
@@ -314,15 +321,34 @@ const createSession = async (uid, qrCallback) => {
   }
 };
 
-const disconnectSession = (uid) => {
+process.on('uncaughtException', (error) => {
+  if (error.message.includes('EBUSY: resource busy or locked')) {
+    logger.warn('Session removal error detected. Continuing server operation.');
+  } else {
+    logger.error(`Uncaught exception: ${error.message}`);
+    process.exit(1); // Detén el proceso solo para errores críticos no relacionados
+  }
+});
+
+
+const disconnectSession = async (uid) => {
   if (activeClients[uid]) {
-    activeClients[uid].removeAllListeners();
-    activeClients[uid].destroy();
-    delete activeClients[uid];
-    return 'disconnected';
+    try {
+      logger.info(`Disconnecting session for user ${uid}`);
+      activeClients[uid].removeAllListeners(); // Elimina todos los eventos
+      await activeClients[uid].destroy(); // Destruye la sesión del cliente
+      delete activeClients[uid];
+      await sessionManager.deleteSession(uid, sessionsPath); // Limpia la sesión local
+      logger.info(`Session for user ${uid} disconnected successfully.`);
+      return 'disconnected';
+    } catch (error) {
+      logger.error(`Error disconnecting session for user ${uid}: ${error.message}`);
+      return 'failed';
+    }
   }
   return 'Session not found';
 };
+
 
 const sendMessage = async (uid, to, text) => {
   const client = activeClients[uid];

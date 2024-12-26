@@ -41,12 +41,12 @@ exports.registerUser = async (req, res) => {
 // Ruta para obtener el estado de la sesión
 exports.getSessionStatus = async (req, res) => {
   try {
-    const { userId } = req.params;
-    const status = whatsappService.getSessionState(userId);
-    logger.info(`Fetched session status for user ${userId}: ${status}`);
-    return apiResponse.sendSuccess(res, { userId, status }, 200);
+    const { uid } = req.params; // Cambiar userId a uid
+    const status = whatsappService.getSessionState(uid); // Cambiar userId a uid
+    logger.info(`Fetched session status for user ${uid}: ${status}`); // Cambiar userId a uid
+    return apiResponse.sendSuccess(res, { uid, status }, 200); // Cambiar userId a uid
   } catch (error) {
-    logger.error(`Error fetching session status for user ${userId}: ${error.message}`);
+    logger.error(`Error fetching session status for user ${req.params.uid}: ${error.message}`); // Cambiar userId a uid
     return apiResponse.sendError(res, 'Error fetching session status.', 500);
   }
 };
@@ -54,19 +54,20 @@ exports.getSessionStatus = async (req, res) => {
 // Ruta para desconectar un usuario
 exports.disconnectUser = async (req, res) => {
   try {
-    const { userId } = req.params;
-    const status = whatsappService.disconnectSession(userId);
+    const { uid } = req.params; // Cambiar userId a uid
+    const status = whatsappService.disconnectSession(uid); // Cambiar userId a uid
     if (status === 'disconnected') {
-      logger.info(`User ${userId} disconnected successfully.`);
+      logger.info(`User ${uid} disconnected successfully.`); // Cambiar userId a uid
     } else {
-      logger.warn(`Failed to disconnect user ${userId}.`);
+      logger.warn(`Failed to disconnect user ${uid}.`); // Cambiar userId a uid
     }
-    return apiResponse.sendSuccess(res, { userId, status }, 200);
+    return apiResponse.sendSuccess(res, { uid, status }, 200); // Cambiar userId a uid
   } catch (error) {
-    logger.error(`Error disconnecting user ${userId}: ${error.message}`);
+    logger.error(`Error disconnecting user ${req.params.uid}: ${error.message}`); // Cambiar userId a uid
     return apiResponse.sendError(res, 'Error disconnecting user.', 500);
   }
 };
+
 
 // Ruta para enviar un mensaje
 exports.sendMessage = async (req, res) => {
