@@ -8,10 +8,12 @@ const logger = require('../utils/logger');
 const multer = require('multer');
 const FormData = require('form-data');
 const { exec } = require('child_process');
+const { promisify } = require('util');
+const rimraf = promisify(require('rimraf'));
 
 const sessionsPath = path.join(__dirname, '..', '.wwebjs_auth');
 const activeClients = {};
-const chromePath = path.join(__dirname, 'chrome', 'chrome.exe'); // Ruta de Chrome
+const chromePath = path.join(__dirname, 'chrome', 'chrome.exe');
 const tempDir = path.join(__dirname, 'temp');
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
@@ -92,54 +94,55 @@ const uploadFile = async (filePath, originalName) => {
 };
 
 const createClient = (uid, useChrome = false) => {
-  const puppeteerConfig = useChrome
-    ? {
-        executablePath: chromePath,
-        headless: true,
-        timeout: 60000, // 60 segundos
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--disable-gpu',
-        ],
+    const puppeteerConfig = useChrome
+      ? {
+          executablePath: chromePath,
+          headless: true,
+          timeout: 60000,
+          args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-accelerated-2d-canvas',
+              '--disable-gpu',
+          ],
       }
-    : {
-        headless: true,
-        timeout: 60000, // 60 segundos
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-        ],
+      : {
+          headless: true,
+          timeout: 60000,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+          ],
       };
 
-  return new Client({
-    authStrategy: new LocalAuth({
-      clientId: uid,
-      dataPath: path.join(sessionsPath, uid),
-    }),
-    puppeteer: puppeteerConfig,
-  });
+    return new Client({
+        authStrategy: new LocalAuth({
+            clientId: uid,
+            dataPath: path.join(sessionsPath, uid),
+        }),
+        puppeteer: puppeteerConfig,
+    });
 };
 
+
 const retryInitialize = async (uid, retries = 3) => {
-  while (retries > 0) {
-    try {
-      logger.info(`Retrying initialization for client ${uid} (${retries} attempts left)...`);
-      const client = createClient(uid);
-      await client.initialize();
-      activeClients[uid] = client;
-      logger.info(`[Ready] WhatsApp client for ${uid} is ready after retry`);
-      return;
-    } catch (error) {
-      logger.error(`Retry failed for client ${uid}: ${error.message}`);
-      retries -= 1;
+    while (retries > 0) {
+        try {
+            logger.info(`Retrying initialization for client ${uid} (${retries} attempts left)...`);
+            const client = createClient(uid);
+            await client.initialize();
+            activeClients[uid] = client;
+            logger.info(`[Ready] WhatsApp client for ${uid} is ready after retry`);
+            return;
+        } catch (error) {
+            logger.error(`Retry failed for client ${uid}: ${error.message}`);
+            retries -= 1;
+        }
     }
-  }
-  logger.error(`All retries failed for client ${uid}`);
+    logger.error(`All retries failed for client ${uid}`);
 };
 
 
@@ -243,10 +246,10 @@ const initializeSessions = () => {
           logger.info(`Client added to activeClients: ${uid}`);
         }
       });
-      client.initialize().catch((error) => {
+       client.initialize().catch((error) => {
         logger.error(`Error initializing client for user ${uid}: ${error.message}`);
         logger.debug(`Stack trace for client ${uid}: ${error.stack}`);
-      });      
+      });
       setupMessageListener(client, uid);
     }
   });
@@ -259,96 +262,119 @@ const getSessionState = (uid) => {
 };
 
 const createSession = async (uid, qrCallback) => {
-  const sessions = sessionManager.readSessions();
-  if (activeClients[uid]) {
-    await activeClients[uid].destroy();
-    delete activeClients[uid];
-    sessionManager.deleteSession(uid, sessionsPath);
-  }
-  if (sessions[uid] && !sessions[uid].authenticated) {
-    sessionManager.deleteSession(uid, sessionsPath);
-  }
-  logger.info(`Initializing client for user ${uid}`);
-  const client = createClient(uid);
-  let qrCodeGenerated = false;
-  const qrTimeout = setTimeout(async () => {
-    if (!qrCodeGenerated) {
-      try {
-        await client.destroy();
+    const sessions = sessionManager.readSessions();
+    if (activeClients[uid]) {
+        await disconnectSession(uid, true);
         delete activeClients[uid];
         sessionManager.deleteSession(uid, sessionsPath);
-      } catch (err) {
-        logger.error(`Failed to destroy session for user ${uid}: ${err.message}`);
-      }
     }
-  }, 60000);
+
+    if (sessions[uid] && !sessions[uid].authenticated) {
+        sessionManager.deleteSession(uid, sessionsPath);
+    }
+    logger.info(`Initializing client for user ${uid}`);
+    const client = createClient(uid);
+    let qrCodeGenerated = false;
+    const qrTimeout = setTimeout(async () => {
+        if (!qrCodeGenerated) {
+            try {
+               await disconnectSession(uid, true);
+                delete activeClients[uid];
+                sessionManager.deleteSession(uid, sessionsPath);
+            } catch (err) {
+                logger.error(`Failed to destroy session for user ${uid}: ${err.message}`);
+            }
+        }
+    }, 60000);
   activeClients[uid] = client;
   client.on('qr', async (qr) => {
-    if (!qrCodeGenerated) {
-      clearTimeout(qrTimeout);
-      qrCodeGenerated = true;
-      const qrBase64 = await qrcode.toDataURL(qr);
-      qrCallback(qrBase64, null);
-    }
+        if (!qrCodeGenerated) {
+            clearTimeout(qrTimeout);
+            qrCodeGenerated = true;
+            const qrBase64 = await qrcode.toDataURL(qr);
+            qrCallback(qrBase64, null);
+        }
   });
   client.on('ready', () => {
     clearTimeout(qrTimeout);
     sessionManager.addSession(uid, sessionManager.getToken(uid));
     sessionManager.updateSessionAuth(uid, true);
     logger.info(`Session synchronized and updated for user ${uid}`);
-  });
+    });
   client.on('auth_failure', (msg) => {
-    delete activeClients[uid];
-    qrCallback(null, 'Authentication failed.');
-  });
-  client.on('disconnected', async (reason) => {
-    logger.warn(`[Disconnected] Client for ${uid} disconnected due to: ${reason}`);
-    try {
-      // Remueve el cliente de la lista de activos y limpia la sesión local
       delete activeClients[uid];
-      await sessionManager.deleteSession(uid, sessionsPath); // Limpia la sesión local
-      logger.info(`Session for user ${uid} removed successfully.`);
-    } catch (error) {
-      logger.error(`Error while removing session for user ${uid}: ${error.message}`);
-    }
-  });  
+      qrCallback(null, 'Authentication failed.');
+  });
+    client.on('disconnected', async (reason) => {
+       logger.warn(`[Disconnected] Client for ${uid} disconnected due to: ${reason}`);
+         try {
+           if (activeClients[uid]) {
+              await disconnectSession(uid, true); // Use the new disconnect function
+               delete activeClients[uid];
+             await sessionManager.deleteSession(uid, sessionsPath);
+             logger.info(`Session for user ${uid} removed successfully.`);
+            }
+         } catch (error) {
+           logger.error(`Error while removing session for user ${uid}: ${error.message}`);
+         }
+    });  
   try {
-    await client.initialize();
+        await client.initialize();
   } catch (error) {
     logger.error(`Error initializing client for user ${uid}: ${error.message}`);
     delete activeClients[uid];
     qrCallback(null, `Failed to initialize client: ${error.message}`);
-  }
+    }
 };
 
 process.on('uncaughtException', (error) => {
-  if (error.message.includes('EBUSY: resource busy or locked')) {
-    logger.warn('Session removal error detected. Continuing server operation.');
-  } else {
-    logger.error(`Uncaught exception: ${error.message}`);
-    process.exit(1); // Detén el proceso solo para errores críticos no relacionados
-  }
+    if (error.message.includes('EBUSY: resource busy or locked')) {
+        logger.warn('Session removal error detected. Continuing server operation.');
+    } else {
+        logger.error(`Uncaught exception: ${error.message}`);
+        process.exit(1);
+    }
 });
 
-
-const disconnectSession = async (uid) => {
-  if (activeClients[uid]) {
+const deleteSessionDirectory = async (sessionPath) => {
     try {
-      logger.info(`Disconnecting session for user ${uid}`);
-      activeClients[uid].removeAllListeners(); // Elimina todos los eventos
-      await activeClients[uid].destroy(); // Destruye la sesión del cliente
-      delete activeClients[uid];
-      await sessionManager.deleteSession(uid, sessionsPath); // Limpia la sesión local
-      logger.info(`Session for user ${uid} disconnected successfully.`);
-      return 'disconnected';
+        await rimraf(sessionPath);
+        logger.info(`[Cleanup] Successfully deleted directory: ${sessionPath}`);
     } catch (error) {
-      logger.error(`Error disconnecting session for user ${uid}: ${error.message}`);
-      return 'failed';
+      logger.error(`[Cleanup] Failed to forcibly delete directory: ${sessionPath}, Error: ${error.message}`);
     }
-  }
-  return 'Session not found';
 };
 
+
+const disconnectSession = async (uid, force = false) => {
+    const client = activeClients[uid];
+    if (!client) return 'Session not found';
+    let isCleanupDone = false;
+    try {
+        logger.info(`Disconnecting session for user ${uid}`);
+
+        if (force) {
+          client.removeAllListeners();
+            await client.destroy();
+        } else {
+           client.removeAllListeners();
+           await client.logout(); //Logout first before destroy
+        }
+
+       const sessionPath = path.join(sessionsPath, uid);
+        if(!isCleanupDone){
+             await deleteSessionDirectory(sessionPath);
+             isCleanupDone = true;
+        }
+
+        delete activeClients[uid];
+        logger.info(`Session for user ${uid} disconnected successfully.`);
+        return 'disconnected';
+    } catch (error) {
+        logger.error(`Error disconnecting session for user ${uid}: ${error.message}`);
+        return 'failed';
+    }
+};
 
 const sendMessage = async (uid, to, text) => {
   const client = activeClients[uid];
@@ -363,15 +389,15 @@ const sendMessage = async (uid, to, text) => {
 };
 
 const sendMediaMessage = async (uid, to, url, type) => {
-  const useChrome = type === 'video' || type === 'gif';
+    const useChrome = type === 'video' || type === 'gif';
   const client = activeClients[uid] || createClient(uid, useChrome);
 
   if (!client) return 'Session not found';
   try {
-    const chatId = `${to}@c.us`;
-    const messageText = `Media: ${url}`;
+      const chatId = `${to}@c.us`;
+        const messageText = `Media: ${url}`;
     if (useChrome) {
-      await client.initialize();
+        await client.initialize();
     }
     const message = await client.sendMessage(chatId, messageText);
     return message.id ? 'sent' : 'failed';
@@ -379,7 +405,7 @@ const sendMediaMessage = async (uid, to, url, type) => {
     return 'failed';
   } finally {
     if (useChrome && !activeClients[uid]) {
-      await client.destroy();
+         await client.destroy();
     }
   }
 };
@@ -388,10 +414,10 @@ module.exports = {
   initializeSessions,
   createSession,
   getSessionState,
-  disconnectSession,
+    disconnectSession,
   sendMessage,
   sendMediaMessage,
   setupMessageListener,
-  uploadFile,
-  retryInitialize,
+    uploadFile,
+    retryInitialize,
 };
