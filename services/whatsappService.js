@@ -11,7 +11,7 @@ const { exec } = require('child_process');
 
 const sessionsPath = path.join(__dirname, '..', '.wwebjs_auth');
 const activeClients = {};
-const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const chromePath = path.join(__dirname, 'chrome', 'chrome.exe'); // Ruta de Chrome
 const tempDir = path.join(__dirname, 'temp');
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
