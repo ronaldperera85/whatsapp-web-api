@@ -145,87 +145,86 @@ const retryInitialize = async (uid, retries = 3) => {
     logger.error(`All retries failed for client ${uid}`);
 };
 
-
 const setupMessageListener = (client, uid) => {
-  client.removeAllListeners('message');
-  client.on('message', async (msg) => {
-    if (!activeClients[uid]) return;
-    try {
-      if (msg.from.startsWith('status@')) return;
-      logger.info(`[Incoming] Message from ${msg.from.replace('@c.us', '')} to ${uid} (Type: ${msg.type}): ${msg.body || '(Media message)'}`);
-      let type = 'chat';
-      let thumb = null;
-      let publicUrl = null;
-      if (msg.hasMedia) {
-        const media = await msg.downloadMedia();
-        if (!media || !media.data) throw new Error('Media data is undefined or invalid.');
-        type = media.mimetype.startsWith('image')
-          ? 'image'
-          : media.mimetype.startsWith('video')
-          ? 'video'
-          : media.mimetype.startsWith('application')
-          ? 'document'
-          : media.mimetype.startsWith('audio')
-          ? 'audio'
-          : 'sticker';
-        const extension = media.mimetype.split('/')[1] || 'bin';
-        const sanitizedFilename = (media.filename || `file_${Date.now()}.${extension}`).replace(/[^a-zA-Z0-9._-]/g, '_');
-        const filePath = path.join(tempDir, `${msg.id.id}-${sanitizedFilename}`);
-        fs.writeFileSync(filePath, Buffer.from(media.data, 'base64'));
+    client.removeAllListeners('message');
+    client.on('message', async (msg) => {
+        if (!activeClients[uid]) return;
         try {
-          if (type === 'audio') {
-            const convertedPath = await convertToAAC(filePath);
-            publicUrl = await uploadFile(convertedPath, path.basename(convertedPath));
-            fs.unlinkSync(convertedPath);
-          } else {
-            publicUrl = await uploadFile(filePath, sanitizedFilename);
-            thumb = media.thumbnail || null;
-          }
-          if (!publicUrl) throw new Error('Failed to upload the file.');
-        } finally {
-          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            if (msg.from.startsWith('status@')) return;
+            logger.info(`[Incoming] Message from ${msg.from.replace('@c.us', '')} to ${uid} (Type: ${msg.type}): ${msg.body || '(Media message)'}`);
+            let type = 'chat';
+            let thumb = null;
+            let publicUrl = null;
+            if (msg.hasMedia) {
+                const media = await msg.downloadMedia();
+                if (!media || !media.data) throw new Error('Media data is undefined or invalid.');
+                type = media.mimetype.startsWith('image')
+                    ? 'image'
+                    : media.mimetype.startsWith('video')
+                    ? 'video'
+                    : media.mimetype.startsWith('application')
+                        ? 'document'
+                        : media.mimetype.startsWith('audio')
+                            ? 'audio'
+                            : 'sticker';
+                const extension = media.mimetype.split('/')[1] || 'bin';
+                const sanitizedFilename = (media.filename || `file_${Date.now()}.${extension}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+                const filePath = path.join(tempDir, `${msg.id.id}-${sanitizedFilename}`);
+                fs.writeFileSync(filePath, Buffer.from(media.data, 'base64'));
+                try {
+                    if (type === 'audio') {
+                        const convertedPath = await convertToAAC(filePath);
+                        publicUrl = await uploadFile(convertedPath, path.basename(convertedPath));
+                        fs.unlinkSync(convertedPath);
+                    } else {
+                        publicUrl = await uploadFile(filePath, sanitizedFilename);
+                        thumb = media.thumbnail || null;
+                    }
+                    if (!publicUrl) throw new Error('Failed to upload the file.');
+                } finally {
+                    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                }
+            } else if (msg.type === 'location') {
+                type = 'location';
+                thumb = msg.thumb || null;
+                const locationData = {
+                    name: msg.locationName || '',
+                    lng: msg.locationLongitude || '',
+                    lat: msg.locationLatitude || '',
+                    thumb: thumb || '',
+                };
+                publicUrl = JSON.stringify(locationData);
+            } else if (msg.type === 'vcard') {
+                type = 'chat';
+            }
+            const body = buildMessageBody(msg, type, publicUrl, thumb);
+            const payload = {
+                event: 'message',
+                token: sessionManager.getToken(uid),
+                uid,
+                contact: {
+                    uid: msg.from.replace('@c.us', ''),
+                    name: msg._data.notifyName || 'Unknown',
+                    type: 'user',
+                },
+                message: {
+                    dtm: Math.floor(Date.now() / 1000),
+                    uid: msg.id.id,
+                    cuid: '',
+                    dir: 'i',
+                    type,
+                    body,
+                    ack: msg.ack.toString(),
+                },
+            };
+            await axios.post(process.env.POST_ENDPOINT, payload, {
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            });
+            logger.info(`Message of type '${type}' sent successfully to endpoint.`);
+        } catch (error) {
+            logger.error(`Error processing message: ${error.message}`);
         }
-      } else if (msg.type === 'location') {
-        type = 'location';
-        thumb = msg.thumb || null;
-        const locationData = {
-          name: msg.locationName || '',
-          lng: msg.locationLongitude || '',
-          lat: msg.locationLatitude || '',
-          thumb: thumb || '',
-        };
-        publicUrl = JSON.stringify(locationData);
-      } else if (msg.type === 'vcard') {
-        type = 'chat';
-      }
-      const body = buildMessageBody(msg, type, publicUrl, thumb);
-      const payload = {
-        event: 'message',
-        token: sessionManager.getToken(uid),
-        uid,
-        contact: {
-          uid: msg.from.replace('@c.us', ''),
-          name: msg._data.notifyName || 'Unknown',
-          type: 'user',
-        },
-        message: {
-          dtm: Math.floor(Date.now() / 1000),
-          uid: msg.id.id,
-          cuid: '',
-          dir: 'i',
-          type,
-          body,
-          ack: msg.ack.toString(),
-        },
-      };
-      await axios.post(process.env.POST_ENDPOINT, payload, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      });
-      logger.info(`Message of type '${type}' sent successfully to endpoint.`);
-    } catch (error) {
-      logger.error(`Error processing message: ${error.message}`);
-    }
-  });
+    });
 };
 
 const initializeSessions = () => {
@@ -260,70 +259,86 @@ const getSessionState = (uid) => {
   if (fs.existsSync(sessionPath)) return 'authenticated';
   return 'unauthenticated';
 };
+const sessionLocks = {};
 
 const createSession = async (uid, qrCallback) => {
-    const sessions = sessionManager.readSessions();
-    if (activeClients[uid]) {
-        await disconnectSession(uid, true);
-        delete activeClients[uid];
-        sessionManager.deleteSession(uid, sessionsPath);
+    // Initialize lock for the session if not already present
+    if (!sessionLocks[uid]) {
+        sessionLocks[uid] = { isLocked: false };
     }
+    // Acquire the lock
+    while (sessionLocks[uid].isLocked) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    sessionLocks[uid].isLocked = true;
 
-    if (sessions[uid] && !sessions[uid].authenticated) {
-        sessionManager.deleteSession(uid, sessionsPath);
-    }
-    logger.info(`Initializing client for user ${uid}`);
-    const client = createClient(uid);
-    let qrCodeGenerated = false;
-    const qrTimeout = setTimeout(async () => {
-        if (!qrCodeGenerated) {
-            try {
-               await disconnectSession(uid, true);
-                delete activeClients[uid];
-                sessionManager.deleteSession(uid, sessionsPath);
-            } catch (err) {
-                logger.error(`Failed to destroy session for user ${uid}: ${err.message}`);
-            }
-        }
-    }, 60000);
-  activeClients[uid] = client;
-  client.on('qr', async (qr) => {
-        if (!qrCodeGenerated) {
-            clearTimeout(qrTimeout);
-            qrCodeGenerated = true;
-            const qrBase64 = await qrcode.toDataURL(qr);
-            qrCallback(qrBase64, null);
-        }
-  });
-  client.on('ready', () => {
-    clearTimeout(qrTimeout);
-    sessionManager.addSession(uid, sessionManager.getToken(uid));
-    sessionManager.updateSessionAuth(uid, true);
-    logger.info(`Session synchronized and updated for user ${uid}`);
-    });
-  client.on('auth_failure', (msg) => {
-      delete activeClients[uid];
-      qrCallback(null, 'Authentication failed.');
-  });
-    client.on('disconnected', async (reason) => {
-       logger.warn(`[Disconnected] Client for ${uid} disconnected due to: ${reason}`);
-         try {
+    try {
+        const sessions = sessionManager.readSessions();
            if (activeClients[uid]) {
-              await disconnectSession(uid, true); // Use the new disconnect function
-               delete activeClients[uid];
-             await sessionManager.deleteSession(uid, sessionsPath);
-             logger.info(`Session for user ${uid} removed successfully.`);
-            }
-         } catch (error) {
-           logger.error(`Error while removing session for user ${uid}: ${error.message}`);
+             await disconnectSession(uid, true);
+             delete activeClients[uid];
+             sessionManager.deleteSession(uid, sessionsPath);
          }
-    });  
-  try {
-        await client.initialize();
-  } catch (error) {
-    logger.error(`Error initializing client for user ${uid}: ${error.message}`);
-    delete activeClients[uid];
-    qrCallback(null, `Failed to initialize client: ${error.message}`);
+
+        if (sessions[uid] && !sessions[uid].authenticated) {
+            sessionManager.deleteSession(uid, sessionsPath);
+        }
+        logger.info(`Initializing client for user ${uid}`);
+        const client = createClient(uid);
+        let qrCodeGenerated = false;
+        const qrTimeout = setTimeout(async () => {
+             if (!qrCodeGenerated) {
+                try {
+                   await disconnectSession(uid, true);
+                   delete activeClients[uid];
+                    sessionManager.deleteSession(uid, sessionsPath);
+                  } catch (err) {
+                    logger.error(`Failed to destroy session for user ${uid}: ${err.message}`);
+                  }
+             }
+         }, 60000);
+      activeClients[uid] = client;
+      client.on('qr', async (qr) => {
+           if (!qrCodeGenerated) {
+               clearTimeout(qrTimeout);
+                qrCodeGenerated = true;
+               const qrBase64 = await qrcode.toDataURL(qr);
+                 qrCallback(qrBase64, null);
+           }
+       });
+       client.on('ready', () => {
+           clearTimeout(qrTimeout);
+            sessionManager.addSession(uid, sessionManager.getToken(uid));
+            sessionManager.updateSessionAuth(uid, true);
+            logger.info(`Session synchronized and updated for user ${uid}`);
+        });
+      client.on('auth_failure', (msg) => {
+            delete activeClients[uid];
+            qrCallback(null, 'Authentication failed.');
+       });
+       client.on('disconnected', async (reason) => {
+          logger.warn(`[Disconnected] Client for ${uid} disconnected due to: ${reason}`);
+            try {
+               if (activeClients[uid]) {
+                  await disconnectSession(uid, true);
+                  delete activeClients[uid];
+                   await sessionManager.deleteSession(uid, sessionsPath);
+                  logger.info(`Session for user ${uid} removed successfully.`);
+                }
+            } catch (error) {
+             logger.error(`Error while removing session for user ${uid}: ${error.message}`);
+           }
+      });
+      try {
+          await client.initialize();
+      } catch (error) {
+         logger.error(`Error initializing client for user ${uid}: ${error.message}`);
+          delete activeClients[uid];
+          qrCallback(null, `Failed to initialize client: ${error.message}`);
+       }
+    } finally {
+        // Release the lock
+        sessionLocks[uid].isLocked = false;
     }
 };
 
@@ -347,25 +362,24 @@ const deleteSessionDirectory = async (sessionPath) => {
 
 
 const disconnectSession = async (uid, force = false) => {
-    const client = activeClients[uid];
+   const client = activeClients[uid];
     if (!client) return 'Session not found';
-    let isCleanupDone = false;
     try {
         logger.info(`Disconnecting session for user ${uid}`);
 
         if (force) {
-          client.removeAllListeners();
+            client.removeAllListeners();
             await client.destroy();
         } else {
            client.removeAllListeners();
            await client.logout(); //Logout first before destroy
         }
+        
+         await new Promise(resolve => setTimeout(resolve, 500));
 
        const sessionPath = path.join(sessionsPath, uid);
-        if(!isCleanupDone){
-             await deleteSessionDirectory(sessionPath);
-             isCleanupDone = true;
-        }
+        if (activeClients[uid])  await deleteSessionDirectory(sessionPath);
+
 
         delete activeClients[uid];
         logger.info(`Session for user ${uid} disconnected successfully.`);

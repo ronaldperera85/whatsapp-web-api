@@ -94,9 +94,9 @@ exports.sendMessage = async (req, res) => {
     try {
         const { token, uid, to, custom_uid, text } = req.body;
 
-        if (!token || !uid || !to || !custom_uid || !text) {
+        if (!token || !uid || !to  || !text) {
             logger.warn(`Missing fields in send message request for user ${uid}`);
-            return apiResponse.sendError(res, 'Token, UID, To, Custom UID, and Text are required.', 400);
+            return apiResponse.sendError(res, 'Token, UID, To, and Text are required.', 400);
         }
 
         if (!sessionManager.validateToken(token)) {
@@ -128,11 +128,11 @@ exports.sendMediaMessage = async (req, res) => {
     try {
         const { token, uid, to, custom_uid, url, type } = req.body;
 
-         if (!token || !uid || !to || !custom_uid || !url || !type) {
+         if (!token || !uid || !to || !url || !type) {
             logger.warn(`Missing fields in send media message request for user ${uid}`);
             return apiResponse.sendError(
                 res,
-                'Token, UID, To, Custom UID, URL and type are required.',
+                'Token, UID, To, URL and type are required.',
                 400
             );
         }
