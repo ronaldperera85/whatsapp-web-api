@@ -127,7 +127,6 @@ const createClient = (uid, useChrome = false) => {
     });
 };
 
-
 const retryInitialize = async (uid, retries = 3) => {
     while (retries > 0) {
         try {
@@ -146,85 +145,86 @@ const retryInitialize = async (uid, retries = 3) => {
 };
 
 const setupMessageListener = (client, uid) => {
-    client.removeAllListeners('message');
-    client.on('message', async (msg) => {
-        if (!activeClients[uid]) return;
-        try {
-            if (msg.from.startsWith('status@')) return;
-            logger.info(`[Incoming] Message from ${msg.from.replace('@c.us', '')} to ${uid} (Type: ${msg.type}): ${msg.body || '(Media message)'}`);
-            let type = 'chat';
-            let thumb = null;
-            let publicUrl = null;
-            if (msg.hasMedia) {
-                const media = await msg.downloadMedia();
-                if (!media || !media.data) throw new Error('Media data is undefined or invalid.');
-                type = media.mimetype.startsWith('image')
-                    ? 'image'
-                    : media.mimetype.startsWith('video')
-                    ? 'video'
-                    : media.mimetype.startsWith('application')
-                        ? 'document'
-                        : media.mimetype.startsWith('audio')
-                            ? 'audio'
-                            : 'sticker';
-                const extension = media.mimetype.split('/')[1] || 'bin';
-                const sanitizedFilename = (media.filename || `file_${Date.now()}.${extension}`).replace(/[^a-zA-Z0-9._-]/g, '_');
-                const filePath = path.join(tempDir, `${msg.id.id}-${sanitizedFilename}`);
-                fs.writeFileSync(filePath, Buffer.from(media.data, 'base64'));
-                try {
-                    if (type === 'audio') {
-                        const convertedPath = await convertToAAC(filePath);
-                        publicUrl = await uploadFile(convertedPath, path.basename(convertedPath));
-                        fs.unlinkSync(convertedPath);
-                    } else {
-                        publicUrl = await uploadFile(filePath, sanitizedFilename);
-                        thumb = media.thumbnail || null;
-                    }
-                    if (!publicUrl) throw new Error('Failed to upload the file.');
-                } finally {
-                    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-                }
-            } else if (msg.type === 'location') {
-                type = 'location';
-                thumb = msg.thumb || null;
-                const locationData = {
-                    name: msg.locationName || '',
-                    lng: msg.locationLongitude || '',
-                    lat: msg.locationLatitude || '',
-                    thumb: thumb || '',
-                };
-                publicUrl = JSON.stringify(locationData);
-            } else if (msg.type === 'vcard') {
-                type = 'chat';
-            }
-            const body = buildMessageBody(msg, type, publicUrl, thumb);
-            const payload = {
-                event: 'message',
-                token: sessionManager.getToken(uid),
-                uid,
-                contact: {
-                    uid: msg.from.replace('@c.us', ''),
-                    name: msg._data.notifyName || 'Unknown',
-                    type: 'user',
-                },
-                message: {
-                    dtm: Math.floor(Date.now() / 1000),
-                    uid: msg.id.id,
-                    cuid: '',
-                    dir: 'i',
-                    type,
-                    body,
-                    ack: msg.ack.toString(),
-                },
-            };
-            await axios.post(process.env.POST_ENDPOINT, payload, {
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            });
-            logger.info(`Message of type '${type}' sent successfully to endpoint.`);
-        } catch (error) {
-            logger.error(`Error processing message: ${error.message}`);
-        }
-    });
+  client.removeAllListeners('message');
+  client.on('message', async (msg) => { // Asegúrate de que la función sea async
+      if (!activeClients[uid]) return;
+      try {
+          if (msg.from.startsWith('status@')) return;
+          logger.info(`[Incoming] Message from ${msg.from.replace('@c.us', '')} to ${uid} (Type: ${msg.type}): ${msg.body || '(Media message)'}`);
+          let type = 'chat';
+          let thumb = null;
+          let publicUrl = null;
+          if (msg.hasMedia) {
+              const media = await msg.downloadMedia();
+              if (!media || !media.data) throw new Error('Media data is undefined or invalid.');
+              type = media.mimetype.startsWith('image')
+                  ? 'image'
+                  : media.mimetype.startsWith('video')
+                  ? 'video'
+                  : media.mimetype.startsWith('application')
+                      ? 'document'
+                      : media.mimetype.startsWith('audio')
+                          ? 'audio'
+                          : 'sticker';
+              const extension = media.mimetype.split('/')[1] || 'bin';
+              const sanitizedFilename = (media.filename || `file_${Date.now()}.${extension}`).replace(/[^a-zA-Z0-9._-]/g, '_');
+              const filePath = path.join(tempDir, `${msg.id.id}-${sanitizedFilename}`);
+              // Reemplazo aquí: Usa await con fs.promises.writeFile
+              await fs.promises.writeFile(filePath, Buffer.from(media.data, 'base64'));
+              try {
+                  if (type === 'audio') {
+                      const convertedPath = await convertToAAC(filePath);
+                      publicUrl = await uploadFile(convertedPath, path.basename(convertedPath));
+                      fs.unlinkSync(convertedPath); // Esto puede permanecer síncrono ya que es una operación rápida
+                  } else {
+                      publicUrl = await uploadFile(filePath, sanitizedFilename);
+                      thumb = media.thumbnail || null;
+                  }
+                  if (!publicUrl) throw new Error('Failed to upload the file.');
+              } finally {
+                  if (fs.existsSync(filePath)) fs.unlinkSync(filePath); // Esto puede permanecer síncrono
+              }
+          } else if (msg.type === 'location') {
+              type = 'location';
+              thumb = msg.thumb || null;
+              const locationData = {
+                  name: msg.locationName || '',
+                  lng: msg.locationLongitude || '',
+                  lat: msg.locationLatitude || '',
+                  thumb: thumb || '',
+              };
+              publicUrl = JSON.stringify(locationData);
+          } else if (msg.type === 'vcard') {
+              type = 'chat';
+          }
+          const body = buildMessageBody(msg, type, publicUrl, thumb);
+          const payload = {
+              event: 'message',
+              token: sessionManager.getToken(uid),
+              uid,
+              contact: {
+                  uid: msg.from.replace('@c.us', ''),
+                  name: msg._data.notifyName || 'Unknown',
+                  type: 'user',
+              },
+              message: {
+                  dtm: Math.floor(Date.now() / 1000),
+                  uid: msg.id.id,
+                  cuid: '',
+                  dir: 'i',
+                  type,
+                  body,
+                  ack: msg.ack.toString(),
+              },
+          };
+          await axios.post(process.env.POST_ENDPOINT, payload, {
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          });
+          logger.info(`Message of type '${type}' sent successfully to endpoint.`);
+      } catch (error) {
+          logger.error(`Error processing message: ${error.message}`);
+      }
+  });
 };
 
 const initializeSessions = () => {
@@ -360,34 +360,39 @@ const deleteSessionDirectory = async (sessionPath) => {
     }
 };
 
-
 const disconnectSession = async (uid, force = false) => {
-   const client = activeClients[uid];
-    if (!client) return 'Session not found';
-    try {
-        logger.info(`Disconnecting session for user ${uid}`);
+  const client = activeClients[uid];
+  if (!client) return 'Session not found';
+  try {
+      logger.info(`Disconnecting session for user ${uid}`);
 
-        if (force) {
-            client.removeAllListeners();
-            await client.destroy();
-        } else {
-           client.removeAllListeners();
-           await client.logout(); //Logout first before destroy
-        }
-        
-         await new Promise(resolve => setTimeout(resolve, 500));
+      client.removeAllListeners(); // Remover listeners primero
 
-       const sessionPath = path.join(sessionsPath, uid);
-        if (activeClients[uid])  await deleteSessionDirectory(sessionPath);
+      if (force) {
+          await client.destroy();
+      } else {
+          await client.logout(); // Logout antes de destroy
+          await client.destroy();
+      }
 
+      // Esperar un breve momento para que se completen las operaciones
+      await new Promise(resolve => setTimeout(resolve, 500));
 
-        delete activeClients[uid];
-        logger.info(`Session for user ${uid} disconnected successfully.`);
-        return 'disconnected';
-    } catch (error) {
-        logger.error(`Error disconnecting session for user ${uid}: ${error.message}`);
-        return 'failed';
-    }
+      const sessionPath = path.join(sessionsPath, uid);
+
+      // Eliminar la entrada de sessions.json PRIMERO
+      sessionManager.deleteSession(uid, sessionsPath);
+
+      // Luego eliminar la carpeta de autenticación
+      await deleteSessionDirectory(sessionPath);
+
+      delete activeClients[uid];
+      logger.info(`Session for user ${uid} disconnected successfully.`);
+      return 'disconnected';
+  } catch (error) {
+      logger.error(`Error disconnecting session for user ${uid}: ${error.message}`);
+      return 'failed';
+  }
 };
 
 const sendMessage = async (uid, to, text) => {

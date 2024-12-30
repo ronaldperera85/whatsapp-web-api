@@ -87,8 +87,6 @@ exports.disconnectUser = async (req, res) => {
     }
 };
 
-
-
 // Ruta para enviar un mensaje
 exports.sendMessage = async (req, res) => {
     try {
@@ -151,7 +149,6 @@ exports.sendMediaMessage = async (req, res) => {
             logger.warn(`Invalid media type: ${type} for user ${uid}`);
             return apiResponse.sendError(res, 'Invalid media type.', 400)
         }
-
 
     const status = await whatsappService.sendMediaMessage(uid, to, url, type);
 

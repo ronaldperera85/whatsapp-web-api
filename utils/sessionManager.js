@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('./logger');
 
-
 // Ruta del archivo sessions.json
 const sessionFilePath = path.join(__dirname, '..', 'sessions.json');
 
@@ -133,8 +132,6 @@ const cleanDirectory = (dirPath) => {
     logger.error(`[Cleanup] Failed to forcibly delete directory: ${dirPath}, Error: ${err.message}`);
   }
 };
-
-
 
 module.exports = {
     addSession,
