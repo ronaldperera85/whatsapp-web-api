@@ -255,8 +255,10 @@ const initializeSessions = () => {
 };
 
 const getSessionState = (uid) => {
-  const sessionPath = path.join(sessionsPath, uid);
-  if (fs.existsSync(sessionPath)) return 'authenticated';
+  const client = activeClients[uid];
+  if (client && client.info && client.info.me) {
+     return 'authenticated'; // Cliente está activamente autenticado
+  }
   return 'unauthenticated';
 };
 const sessionLocks = {};
@@ -362,38 +364,44 @@ const deleteSessionDirectory = async (sessionPath) => {
 
 const disconnectSession = async (uid, force = false) => {
   const client = activeClients[uid];
-  if (!client) return 'Session not found';
+  if (!client) {
+    return { success: false, message: 'Session not found' };
+  }
+
   try {
-      logger.info(`Disconnecting session for user ${uid}`);
+    logger.info(`Disconnecting session for user ${uid}`);
 
-      client.removeAllListeners(); // Remover listeners primero
+    client.removeAllListeners(); // Remover listeners primero
 
-      if (force) {
-          await client.destroy();
-      } else {
-          await client.logout(); // Logout antes de destroy
-          await client.destroy();
-      }
+    if (force) {
+      await client.logout();
+      await client.destroy();
+    } else {
+      await client.logout(); // Logout antes de destroy
+      await client.destroy();
+    }
 
-      // Esperar un breve momento para que se completen las operaciones
-      await new Promise(resolve => setTimeout(resolve, 500));
+    // Esperar un breve momento para que se completen las operaciones
+    await new Promise(resolve => setTimeout(resolve, 500));
 
-      const sessionPath = path.join(sessionsPath, uid);
+    const sessionPath = path.join(sessionsPath, uid);
 
-      // Eliminar la entrada de sessions.json PRIMERO
-      sessionManager.deleteSession(uid, sessionsPath);
+    // Eliminar la entrada de sessions.json PRIMERO
+    sessionManager.deleteSession(uid, sessionsPath);
 
-      // Luego eliminar la carpeta de autenticación
-      await deleteSessionDirectory(sessionPath);
+    // Luego eliminar la carpeta de autenticación
+    await deleteSessionDirectory(sessionPath);
 
-      delete activeClients[uid];
-      logger.info(`Session for user ${uid} disconnected successfully.`);
-      return 'disconnected';
+    delete activeClients[uid];
+    logger.info(`Session for user ${uid} disconnected successfully.`);
+
+    return { success: true, message: `Session for user ${uid} disconnected successfully.` };
   } catch (error) {
-      logger.error(`Error disconnecting session for user ${uid}: ${error.message}`);
-      return 'failed';
+    logger.error(`Error disconnecting session for user ${uid}: ${error.message}`);
+    return { success: false, message: `Error disconnecting session for user ${uid}: ${error.message}` };
   }
 };
+
 
 const sendMessage = async (uid, to, text) => {
   const client = activeClients[uid];

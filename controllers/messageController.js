@@ -47,16 +47,16 @@ exports.registerUser = async (req, res) => {
 
 // Ruta para obtener el estado de la sesión
 exports.getSessionStatus = async (req, res) => {
-  try {
-    const { uid } = req.params;
-    const status = whatsappService.getSessionState(uid);
-    logger.info(`Fetched session status for user ${uid}: ${status}`);
-    return apiResponse.sendSuccess(res, { uid, status }, 200);
-  } catch (error) {
-    logger.error(`Error fetching session status for user ${req.params.uid}: ${error.message}`);
-    return apiResponse.sendError(res, 'Error fetching session status.', 500);
-  }
-};
+    try {
+      const { uid } = req.params;
+      const status = whatsappService.getSessionState(uid);
+      logger.info(`Fetched session status for user ${uid}: ${status}`);
+      return apiResponse.sendSuccess(res, { uid, status }, 200);
+    } catch (error) {
+      logger.error(`Error fetching session status for user ${req.params.uid}: ${error.message}`);
+      return apiResponse.sendError(res, 'Error fetching session status.', 500);
+    }
+  };
 
 // Ruta para desconectar un usuario
 exports.disconnectUser = async (req, res) => {
@@ -64,28 +64,39 @@ exports.disconnectUser = async (req, res) => {
         const { uid } = req.params;
         const status = await whatsappService.disconnectSession(uid);
 
-        let responseData = { uid, status }; // Initialize responseData
+        // Formato uniforme de respuesta
+        let responseData = {
+            success: false,
+            uid,
+            status: status,
+            message: ''
+        };
 
-        if (status === 'disconnected') {
+        if (status.success) { // Check if status.success is true
             logger.info(`User ${uid} disconnected successfully.`);
-            responseData.data = 'disconnected';
-           return apiResponse.sendSuccess(res, responseData, 200);
-        } else if (status === 'Session not found') {
-             logger.warn(`Session not found for user ${uid}.`);
-            responseData.data = 'Session not found';
-             return apiResponse.sendError(res, responseData, 404);
-
+            responseData.success = true;
+            responseData.message = status.message; // Get the message from status object
+            return apiResponse.sendSuccess(res, responseData, 200);
+        } else if (status.message === 'Session not found') {
+            logger.warn(`Session not found for user ${uid}.`);
+            responseData.message = `Session not found for user ${uid}.`;
+            return apiResponse.sendError(res, responseData, 404);
         } else {
-           logger.warn(`Failed to disconnect user ${uid}.`);
-             responseData.data = 'failed';
+            logger.warn(`Failed to disconnect user ${uid}.`);
+            responseData.message = status.message; // Get the message from status object
             return apiResponse.sendError(res, responseData, 500);
-
         }
     } catch (error) {
         logger.error(`Error disconnecting user ${req.params.uid}: ${error.message}`);
-        return apiResponse.sendError(res, 'Error disconnecting user.', 500);
+        return apiResponse.sendError(res, {
+            success: false,
+            uid: req.params.uid,
+            status: 'error',
+            message: `Error disconnecting user: ${error.message}`
+        }, 500);
     }
 };
+
 
 // Ruta para enviar un mensaje
 exports.sendMessage = async (req, res) => {

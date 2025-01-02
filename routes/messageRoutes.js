@@ -6,10 +6,10 @@ const messageController = require('../controllers/messageController');
 router.post('/register', messageController.registerUser);
 
 // Ruta para obtener el estado de la sesión
-router.get('/:uid/status', messageController.getSessionStatus);
+router.get('/status/:uid', messageController.getSessionStatus);
 
 // Ruta para desconectar a un usuario
-router.post('/:uid/disconnect', messageController.disconnectUser);
+router.post('/disconnect/:uid', messageController.disconnectUser);
 
 // Ruta para enviar un mensaje
 router.post('/send/chat', messageController.sendMessage);
