@@ -145,6 +145,7 @@ const retryInitialize = async (uid, retries = 3) => {
 };
 
 const setupMessageListener = (client, uid) => {
+    logger.info(`Setting up message listener for user ${uid}`); // Log adicional
     client.removeAllListeners('message');
     client.on('message', async (msg) => { // Asegúrate de que la función sea async
         if (!activeClients[uid]) return;
@@ -200,6 +201,7 @@ const setupMessageListener = (client, uid) => {
            // Obtener el token del numero desde la base de datos
            const tokenData = await query('SELECT token FROM numeros WHERE numero = ?', [uid]);
            const token = tokenData && tokenData.length > 0 ? tokenData[0].token : null;
+           logger.info(`Token for user ${uid}: ${token}`); // Añade este log
            const body = buildMessageBody(msg, type, publicUrl, thumb);
             const payload = {
                 event: 'message',
@@ -220,6 +222,7 @@ const setupMessageListener = (client, uid) => {
                     ack: msg.ack.toString(),
                 },
             };
+            logger.info(`Payload constructed for user ${uid}: ${JSON.stringify(payload)}`);
 
               try {
                 const response =  await axios.post(process.env.POST_ENDPOINT, payload, {
@@ -440,27 +443,32 @@ const sendMessage = async (uid, to, text) => {
 };
 
 const sendMediaMessage = async (uid, to, url, type) => {
+    let client;
     const useChrome = type === 'video' || type === 'gif';
-  const client = activeClients[uid] || createClient(uid, useChrome);
-
-  if (!client) return 'Session not found';
-  try {
-      const chatId = `${to}@c.us`;
+    try {
+         if (activeClients[uid]) {
+            client = activeClients[uid];
+           logger.info(`Reusing active client for user ${uid} in sendMediaMessage`);
+        } else {
+            client = createClient(uid, useChrome);
+             logger.info(`Creating new client for user ${uid} in sendMediaMessage using Chrome: ${useChrome}`);
+            await client.initialize();
+         }
+        if (!client) return 'Session not found';
+        const chatId = `${to}@c.us`;
         const messageText = `Media: ${url}`;
-    if (useChrome) {
-        await client.initialize();
+        const message = await client.sendMessage(chatId, messageText);
+        logger.info(`[Outgoing] Message of type '${type}' sent successfully to ${to} by user ${uid}: Media URL: ${url}`);
+        return message.id ? 'sent' : 'failed';
+    } catch (error) {
+        logger.error(`Error sending media message to ${to} by user ${uid}: ${error.message}`);
+        return 'failed';
+    } finally {
+        if (!activeClients[uid] && client) {
+            logger.info(`Destroying client for user ${uid} in sendMediaMessage`);
+            await client.destroy();
+        }
     }
-    const message = await client.sendMessage(chatId, messageText);
-    logger.info(`[Outgoing] Message of type '${type}' sent successfully to ${to} by user ${uid}: Media URL: ${url}`); // añadir el log al enviar un mensaje de tipo media
-    return message.id ? 'sent' : 'failed';
-} catch (error) {
-      logger.error(`Error sending media message to ${to} by user ${uid}: ${error.message}`);
-  return 'failed';
-} finally {
-  if (useChrome && !activeClients[uid]) {
-       await client.destroy();
-  }
-}
 };
 
 module.exports = {
