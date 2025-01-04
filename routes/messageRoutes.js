@@ -17,4 +17,5 @@ router.post('/send/chat', messageController.sendMessage);
 // Ruta para enviar un mensaje multimedia
 router.post('/send/media', messageController.sendMediaMessage);
 
+// exporta el router sin la propiedad default
 module.exports = router;

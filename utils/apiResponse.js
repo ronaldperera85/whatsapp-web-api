@@ -8,6 +8,6 @@ exports.sendSuccess = (res, data, statusCode = 200) => {
 exports.sendError = (res, message, statusCode = 500) => {
   res.status(statusCode).json({
     success: false,
-    message: message
+    error: message
   });
 };

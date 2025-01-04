@@ -2,9 +2,10 @@ require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+// Importa messageRoutes correctamente
 const messageRoutes = require('./routes/messageRoutes');
-const userRoutes = require('./routes/userRoutes');
-const { initializeSessions } = require('./services/whatsappService');
+// Importar la funcion inicializar sesiones
+const  { initializeSessions } = require('./services/whatsappService');
 const logger = require('./utils/logger');
 
 // Inicialización de Express
@@ -21,19 +22,18 @@ app.use(bodyParser.json());
 
 // Rutas
 app.use('/api', messageRoutes);
-app.use('/api/users', userRoutes);
 
 // Middleware de manejo de errores
 app.use((err, req, res, next) => {
-  logger.error(`Server error: ${err.stack}`);
-  res.status(500).json({
-    success: false,
-    message: 'Something went wrong!',
-    error: err.message,
-  });
+    logger.error(`Server error: ${err.stack}`);
+    res.status(500).json({
+        success: false,
+        message: 'Something went wrong!',
+        error: err.message,
+    });
 });
 
 // Iniciar servidor
 app.listen(port, () => {
-  logger.info(`Server is running on http://localhost:${port}`);
+    logger.info(`Server is running on http://localhost:${port}`);
 });
