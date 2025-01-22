@@ -147,7 +147,6 @@ const sendMediaMessage = async (req, res) => {
                 const updateLicenciaQuery = 'UPDATE licencias SET mensajes_enviados = mensajes_enviados + 1 WHERE id = ?';
                 await query(updateLicenciaQuery, [licencia.id]);
 
-             // logger.info(`[Outgoing] Message of type '${type}' sent successfully to ${to} by user ${uid}: Media URL: ${url}`); // Eliminar log de aquí
                return apiResponse.sendSuccess(res, { custom_uid, status: 'sent' }, 200);
             }catch(error){
                 logger.error(`Error sending media message for user ${uid}: ${error.message}`);
