@@ -84,83 +84,80 @@ const sendMessage = async (req, res) => {
 
 const sendMediaMessage = async (req, res) => {
     try {
-       const { token, uid, to, url, type } = req.body;
-
-       if (!token || !uid || !to || !url || !type) {
-            logger.warn(`Missing fields in send media message request for user ${uid}`);
-            return apiResponse.sendError(
-                res,
-                'Token, UID, To, URL and type are required.',
-                400
-            );
-        }
-        // Validar el token con el de la base de datos
-       const userToken = await query('SELECT token FROM numeros WHERE numero = ? AND estado = "conectado"',[uid]);
-       if (!userToken || userToken.length === 0 || userToken[0].token !== token) {
-            logger.warn(`Invalid token provided for user ${uid}`);
-           return apiResponse.sendError(res, 'Invalid token.', 403);
-        }
-        const allowedTypes = ['image', 'video', 'document', 'audio', 'sticker', 'gif'];
-        if (!allowedTypes.includes(type)) {
-            logger.warn(`Invalid media type: ${type} for user ${uid}`);
-            return apiResponse.sendError(res, 'Invalid media type.', 400)
-        }
-         // Obtener la licencia del usuario
-        const licenciaQuery = 'SELECT id, tipo_licencia, limite_mensajes, mensajes_enviados, estado_licencia FROM licencias WHERE uid = ?';
-        const licenciaResult = await query(licenciaQuery, [uid]);
+     const { token, uid, to, url} = req.body;
+         if (!token || !uid || !to || !url) {
+              logger.warn(`Missing fields in send media message request for user ${uid}`);
+             return apiResponse.sendError(
+                 res,
+                 'Token, UID, To and URL are required.',
+                 400
+             );
+         }
+         // Validar el token con el de la base de datos
+         const userToken = await query('SELECT token FROM numeros WHERE numero = ? AND estado = "conectado"',[uid]);
+         if (!userToken || userToken.length === 0 || userToken[0].token !== token) {
+             logger.warn(`Invalid token provided for user ${uid}`);
+         return apiResponse.sendError(res, 'Invalid token.', 403);
+         }
+          // Obtener la licencia del usuario
+          const licenciaQuery = 'SELECT id, tipo_licencia, limite_mensajes, mensajes_enviados, estado_licencia FROM licencias WHERE uid = ?';
+         const licenciaResult = await query(licenciaQuery, [uid]);
          if (!licenciaResult || licenciaResult.length === 0) {
-            logger.warn(`No license found for user ${uid}`);
-            return apiResponse.sendError(res, 'No license found for this user.', 403);
-        }
-        const licencia = licenciaResult[0];
-
+             logger.warn(`No license found for user ${uid}`);
+             return apiResponse.sendError(res, 'No license found for this user.', 403);
+         }
+         const licencia = licenciaResult[0];
          if(licencia.estado_licencia === 'BLOQUEADA'){
-            logger.warn(`License for user ${uid} is blocked.`);
+             logger.warn(`License for user ${uid} is blocked.`);
              return apiResponse.sendError(res, 'Your license has been blocked.', 403);
-        }
-
+          }
          if (licencia.mensajes_enviados >= licencia.limite_mensajes) {
-            logger.warn(`Message limit reached for user ${uid}`);
+             logger.warn(`Message limit reached for user ${uid}`);
              return apiResponse.sendError(res, 'Your message limit has been reached.', 403);
          }
-          const status = await whatsappService.sendMediaMessage(uid, to, url, type);
-
-        if (status === 'sent') {
-           const custom_uid = `${uid}-${Date.now()}`;
-           // Registrar mensaje en la base de datos
-            const insertMessageQuery = `
-            INSERT INTO mensajes (uid, custom_uid, token, tipo, mensaje, estado, remitente_uid, destinatario_uid)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-
-            try {
-                 await query(insertMessageQuery, [
-                   uid,
-                   custom_uid,
-                    token,
-                  type,
-                  `Media: ${url}`, // guardar la url como mensaje
-                  'enviado',
-                   uid, // Remitente
-                   to // Destinatario
-                ]);
-                  // Actualizar contador de mensajes
-                const updateLicenciaQuery = 'UPDATE licencias SET mensajes_enviados = mensajes_enviados + 1 WHERE id = ?';
-                await query(updateLicenciaQuery, [licencia.id]);
-
-               return apiResponse.sendSuccess(res, { custom_uid, status: 'sent' }, 200);
-            }catch(error){
-                logger.error(`Error sending media message for user ${uid}: ${error.message}`);
-                 return apiResponse.sendError(res, `Error sending media message. ${error.message}`, 500);
-            }
-        } else {
-            logger.error(`Failed to send media message to ${to}`);
-            return apiResponse.sendError(res, 'Failed to send media message.', 500);
+        const status = await whatsappService.sendMediaMessage(uid, to, url);
+        let inferredType = status;
+        if(typeof status === 'string'){
+           inferredType = 'document' // default type
+         }else{
+             inferredType = status.inferredType;
         }
-    } catch (error) {
-         const uid = extractUid(req);
-        logger.error(`Error sending media message for user ${uid}: ${error.message}`);
-        return apiResponse.sendError(res, 'Error sending media message.', 500);
-    }
+      if (status === 'sent' || status.id ) {
+         const custom_uid = `${uid}-${Date.now()}`;
+         // Registrar mensaje en la base de datos
+         const insertMessageQuery = `
+         INSERT INTO mensajes (uid, custom_uid, token, tipo, mensaje, estado, remitente_uid, destinatario_uid)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+         try {
+             await query(insertMessageQuery, [
+                 uid,
+                custom_uid,
+                 token,
+                 inferredType, // guardar el tipo inferido por whatsappservice
+                `Media: ${url}`, // guardar la url como mensaje
+               'enviado',
+                 uid, // Remitente
+               to // Destinatario
+             ]);
+             // Actualizar contador de mensajes
+            const updateLicenciaQuery = 'UPDATE licencias SET mensajes_enviados = mensajes_enviados + 1 WHERE id = ?';
+             await query(updateLicenciaQuery, [licencia.id]);
+
+             return apiResponse.sendSuccess(res, { custom_uid, status: 'sent' }, 200);
+         }catch(error){
+              logger.error(`Error sending media message for user ${uid}: ${error.message}`);
+             return apiResponse.sendError(res, `Error sending media message. ${error.message}`, 500);
+         }
+      } else {
+         logger.error(`Failed to send media message to ${to}`);
+          return apiResponse.sendError(res, 'Failed to send media message.', 500);
+      }
+ } catch (error) {
+    const uid = extractUid(req);
+    logger.error(`Error sending media message for user ${uid}: ${error.message}`);
+    return apiResponse.sendError(res, 'Error sending media message.', 500);
+}
 };
 
 const registerUser = async (req, res) => {

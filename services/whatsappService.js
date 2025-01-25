@@ -442,25 +442,42 @@ const sendMessage = async (uid, to, text) => {
   }
 };
 
-const sendMediaMessage = async (uid, to, url, type) => {
+const sendMediaMessage = async (uid, to, url, type = null) => { //type es opcional y por defecto es null
     let client;
-    const useChrome = type === 'video' || type === 'gif';
+    let inferredType = type;
+    const useChrome = inferredType === 'video' || inferredType === 'gif';
     try {
-         if (activeClients[uid]) {
+        if (activeClients[uid]) {
             client = activeClients[uid];
-           logger.info(`Reusing active client for user ${uid} in sendMediaMessage`);
+            logger.info(`Reusing active client for user ${uid} in sendMediaMessage`);
         } else {
             client = createClient(uid, useChrome);
-             logger.info(`Creating new client for user ${uid} in sendMediaMessage using Chrome: ${useChrome}`);
+            logger.info(`Creating new client for user ${uid} in sendMediaMessage using Chrome: ${useChrome}`);
             await client.initialize();
-         }
+        }
         if (!client) return 'Session not found';
-        const chatId = `${to}@c.us`;
+   
+       const chatId = `${to}@c.us`;
+   
+         if (!inferredType) {
+            const fileExtension = url.split('.').pop().toLowerCase();
+               if (['jpg', 'jpeg', 'png', 'webp'].includes(fileExtension)) {
+                inferredType = 'image';
+                } else if (['mp4', 'mov', 'avi'].includes(fileExtension)) {
+                inferredType = 'video';
+                } else if (['pdf', 'doc', 'docx', 'xls', 'xlsx'].includes(fileExtension)) {
+                     inferredType = 'document';
+                 }else if (['mp3', 'ogg', 'aac'].includes(fileExtension)) {
+                     inferredType = 'audio'
+                 }else{
+                    inferredType = 'document';
+                }
+          }
         const messageText = `Media: ${url}`;
         const message = await client.sendMessage(chatId, messageText);
-        logger.info(`[Outgoing] Message of type '${type}' sent successfully to ${to} by user ${uid}: Media URL: ${url}`);
-        return message.id ? 'sent' : 'failed';
-    } catch (error) {
+         logger.info(`[Outgoing] Message of type '${inferredType}' sent successfully to ${to} by user ${uid}: Media URL: ${url}`);
+        return message.id ? {id: message.id, inferredType}  : 'failed'; //return un objeto si el mensaje fue enviado con el id y el inferredType y un string si falló el envío
+   } catch (error) {
         logger.error(`Error sending media message to ${to} by user ${uid}: ${error.message}`);
         return 'failed';
     } finally {
@@ -469,7 +486,7 @@ const sendMediaMessage = async (uid, to, url, type) => {
             await client.destroy();
         }
     }
-};
+   };
 
 module.exports = {
   initializeSessions,
