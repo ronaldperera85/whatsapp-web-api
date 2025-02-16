@@ -176,7 +176,7 @@ const registerUser = async (req, res) => {
                 return apiResponse.sendError(res, 'User is already registered.', 400);
             }
         // Generar un token JWT basado en el UID
-        const token = jwt.sign({ uid }, process.env.JWT_SECRET || 'default_secret', { expiresIn: '1h' });
+        const token = jwt.sign({ uid }, process.env.JWT_SECRET || 'default_secret');
         // Almacenar el token del usuario
         await query('UPDATE numeros SET token = ? WHERE numero = ?', [token, uid]);
          // Crear una sesión para el usuario
