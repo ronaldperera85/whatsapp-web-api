@@ -79,16 +79,36 @@ const uploadFile = async (filePath, originalName) => {
         if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
         const formData = new FormData();
         formData.append('file', fs.createReadStream(filePath), originalName);
-        const response = await axios.post(FILE_UPLOAD_ENDPOINT, formData, {
-            headers: {
-                token: FILE_UPLOAD_TOKEN,
-                'Content-Type': 'multipart/form-data',
-                ...formData.getHeaders(),
-            },
+
+        const headers = {
+            'token': FILE_UPLOAD_TOKEN,
+            'Content-Type': 'multipart/form-data; boundary=' + formData.getBoundary() // Obtén el boundary de FormData
+        };
+
+        // Log: Headers que se enviarán
+        logger.info('Headers de FormData:', headers);
+
+        // Log: Petición que se enviará
+        logger.info('Petición a FILE_UPLOAD_ENDPOINT:', {
+            url: FILE_UPLOAD_ENDPOINT,
+            headers: headers,
+            file: originalName
         });
+
+        const response = await axios.post(FILE_UPLOAD_ENDPOINT, formData, {
+            headers: headers,
+            timeout: 60000 // Añade un timeout (ejemplo: 60 segundos)
+        });
+
+        // Log: Respuesta del servidor
+        logger.info('Respuesta del servidor de upload:', response.data);
+
         return response.data.content.publicUrl;
     } catch (error) {
         logger.error(`Error uploading file: ${error.message}`);
+        if (error.response) {
+            logger.error(`Response from upload server: ${error.response.status} - ${error.response.data}`);
+        }
         return null;
     }
 };
