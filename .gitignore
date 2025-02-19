@@ -21,5 +21,4 @@ coverage
 .DS_Store
 .vscode
 sessions.json
-services/chrome
 chrome.zip
